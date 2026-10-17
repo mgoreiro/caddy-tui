@@ -30,7 +30,7 @@ jobs:
           echo "tag=$v code=$code changelog=$deb"
           [ "$v" = "$code" ] && [ "$v" = "$deb" ]
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y debhelper dh-python gettext python3 fakeroot lintian
+        run: sudo apt-get update && sudo apt-get install -y build-essential debhelper dh-python gettext python3 fakeroot lintian
       - name: Build
         run: dpkg-buildpackage -us -uc -b
       - name: Lint
