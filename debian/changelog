@@ -1,0 +1,9 @@
+caddy-tui (1.1.0) unstable; urgency=medium
+
+  * Interface translated: English (default) and Spanish, chosen at startup
+    from --lang, CADDY_TUI_LANG, a saved preference ([L] key) or the system
+    locale.
+  * Packaged as a Debian package (architecture-independent).
+  * Fix: snippets such as "(name) {" were counted as sites.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Sat, 17 Oct 2026 21:00:00 +0200

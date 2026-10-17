@@ -1,6 +1,10 @@
+import ast
 import importlib.util
+import json
 import os
+import re
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("caddy_tui", os.path.join(HERE, "..", "caddy-tui.py"))
@@ -116,6 +120,97 @@ class SiteBlock(unittest.TestCase):
         self.assertTrue(c.HOST_RE.match("app.example.com"))
         self.assertTrue(c.HOST_RE.match("{$DOMAIN}"))
         self.assertFalse(c.HOST_RE.match("host con espacios"))
+
+
+
+def read_po(path):
+    """Minimal .po parser -> {msgid: msgstr} (no plurals/contexts needed here)."""
+    entries, cur, key = {}, {"msgid": "", "msgstr": ""}, None
+    for line in open(path, encoding="utf-8"):
+        line = line.rstrip("\n")
+        m = re.match(r'^(msgid|msgstr) (".*")$', line)
+        if m:
+            if m.group(1) == "msgid" and key == "msgstr":
+                entries[cur["msgid"]] = cur["msgstr"]
+                cur = {"msgid": "", "msgstr": ""}
+            key = m.group(1)
+            cur[key] = json.loads(m.group(2))
+        elif line.startswith('"') and key:
+            cur[key] += json.loads(line)
+    entries[cur["msgid"]] = cur["msgstr"]
+    entries.pop("", None)
+    return entries
+
+
+def source_msgids():
+    """Every literal passed to _() / N_() in the source."""
+    tree = ast.parse(open(os.path.join(HERE, "..", "caddy-tui.py"), encoding="utf-8").read())
+    return {n.args[0].value for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("_", "N_")
+            and n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)}
+
+
+class Translations(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ids = source_msgids()
+        cls.po = {f[:-3]: read_po(os.path.join(HERE, "..", "po", f))
+                  for f in os.listdir(os.path.join(HERE, "..", "po")) if f.endswith(".po")}
+
+    def test_hay_catalogos(self):
+        self.assertIn("es", self.po)
+
+    def test_todo_msgid_esta_traducido_y_no_sobra_nada(self):
+        for lang, entries in self.po.items():
+            with self.subTest(lang=lang):
+                self.assertEqual(sorted(self.ids - set(entries)), [], "untranslated")
+                self.assertEqual(sorted(set(entries) - self.ids), [], "obsolete")
+                self.assertFalse([k for k, v in entries.items() if not v], "empty translations")
+
+    def test_mismos_marcadores_de_formato(self):
+        fields = lambda t: sorted(re.findall(r"\{[^{}]*\}", t))
+        for lang, entries in self.po.items():
+            for k, v in entries.items():
+                with self.subTest(lang=lang, msgid=k):
+                    self.assertEqual(fields(k), fields(v))
+
+    def test_traduce_y_vuelve_a_ingles(self):
+        base = os.path.join(HERE, "..", "locale")
+        if not os.path.isdir(base):
+            self.skipTest("run `make mo` first")
+        try:
+            self.assertEqual(c.set_language("es"), "es")
+            self.assertEqual(c._("Quit"), "Salir")
+            self.assertEqual(c.state_label("running"), "en marcha")
+        finally:
+            c.set_language("en")
+        self.assertEqual(c._("Quit"), "Quit")
+
+
+class LanguageChoice(unittest.TestCase):
+    def pick(self, cli=None, env=None, saved=None, avail=("en", "es")):
+        env = dict(env or {})
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(c, "available_languages", return_value=list(avail)), \
+             mock.patch.object(c, "load_saved_lang", return_value=saved):
+            return c.pick_language(cli)
+
+    def test_prioridad(self):
+        self.assertEqual(self.pick(cli="en", env={"CADDY_TUI_LANG": "es"}, saved="es"), "en")
+        self.assertEqual(self.pick(env={"CADDY_TUI_LANG": "es"}, saved="en"), "es")
+        self.assertEqual(self.pick(saved="es", env={"LANG": "en_US.UTF-8"}), "es")
+        self.assertEqual(self.pick(env={"LANG": "es_ES.UTF-8"}), "es")
+
+    def test_auto_ignora_lo_guardado(self):
+        self.assertEqual(self.pick(cli="auto", saved="es", env={"LANG": "en_US.UTF-8"}), "en")
+
+    def test_idioma_no_disponible_cae_a_ingles(self):
+        self.assertEqual(self.pick(env={"LANG": "fr_FR.UTF-8"}), "en")
+        self.assertEqual(self.pick(cli="fr"), "en")
+
+    def test_locale_c_es_ingles(self):
+        self.assertEqual(self.pick(env={"LANG": "C"}), "en")
+        self.assertEqual(self.pick(env={"LANGUAGE": "es:en", "LANG": "C"}), "es")
 
 
 if __name__ == "__main__":

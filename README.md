@@ -1,85 +1,114 @@
 # caddy-tui
 
-Interfaz de terminal (TUI) para gestionar un **Caddy que corre en Docker**: editar su
-configuración con seguridad, recargarla sin cortes, añadir servicios con un asistente,
-ver el tráfico en vivo y diagnosticar los problemas típicos.
+A terminal UI (TUI) to manage a **Caddy server running in Docker**: edit its configuration
+safely, reload it without downtime, add services with a wizard, watch live traffic and
+diagnose the usual problems.
 
-> **English:** a zero-dependency terminal UI (Python 3 + Docker) to manage a Caddy
-> container: safe Caddyfile editing (validated before saving, with backups), hot reload,
-> a wizard to add reverse-proxy sites, a live traffic monitor and a guided diagnostic that
-> detects and fixes common Docker/Caddy problems. The UI is currently in Spanish.
+> [Versión en español](README.es.md)
 
-Sin dependencias: solo **Python 3.8+** (librería estándar, `curses`) y **Docker**.
+No dependencies: just **Python 3.8+** (standard library, `curses`) and **Docker**.
 
-## Uso
+## Install
 
-```bash
-git clone https://github.com/mgoreiro/caddy-tui.git
-cd caddy-tui
-./caddy-tui.py
-```
-
-O copia solo `caddy-tui.py` donde quieras (es un único fichero). Autodetecta el contenedor
-de Caddy y de él deduce la imagen, el `Caddyfile` montado y el proyecto/servicio de
-`docker compose`. Si hay varios contenedores te deja elegir. Puedes forzar cualquier valor:
-
-| Opción | Variable | Para qué |
-|--------|----------|----------|
-| `--container` | `CADDY_CONTAINER` | contenedor de Caddy |
-| `--caddyfile` | `CADDY_CADDYFILE` | ruta del Caddyfile en el host |
-| `--dir` | `CADDY_DIR` | carpeta del proyecto (compose, `.env`, backups) |
-| `--compose` | `CADDY_COMPOSE` | fichero docker compose |
-| `--service` | `CADDY_SERVICE` | servicio de Caddy en el compose |
-| `--image` | `CADDY_IMAGE` | imagen usada para validar/formatear |
-
-Si el `Caddyfile` pertenece a otro usuario (por ejemplo `/root/...`), ejecútalo con `sudo`.
-
-## Funciones
-
-| Tecla | Acción |
-|-------|--------|
-| `a` | **Asistente para añadir un servicio**: formulario (dominio, destino, HTTPS al destino, gzip, cabeceras de seguridad, log, usuario/contraseña opcional). Genera el bloque, lo valida, muestra vista previa y lo añade |
-| `t` | **Monitor de tráfico** en vivo: peticiones/s, códigos 2xx–5xx, latencia, gráfica, top dominios e IPs y últimas peticiones (`p` pausa, `w` ventana 1/5/15 min). Requiere `log` en el sitio |
-| `d` | **Diagnóstico y reparación** (ver abajo) |
-| `e` | Editar el Caddyfile: se valida antes de guardar, con copia previa |
-| `v` / `l` | Validar / recargar en caliente (sin cortes, validando antes) |
-| `s` / `x` / `r` | Arrancar o aplicar / parar / reiniciar |
-| `g` | Ver logs |
-| `f` | Formatear el Caddyfile |
-| `k` / `b` | Crear / restaurar un backup (`Caddyfile` + `.env` en `.caddy-backups/`) |
-| `n` | Editar `.env` |
-
-### Qué comprueba el diagnóstico
-
-- Docker disponible y variables `{$VAR}` del Caddyfile definidas.
-- Caddyfile válido (con pista específica para `import` sin snippet).
-- Que el contenedor use el **mismo Caddyfile que el disco** (un editor que reemplaza el
-  fichero deja el bind-mount de fichero único apuntando al antiguo).
-- **Puertos** de los sitios sin publicar en el contenedor.
-- **Destinos inalcanzables**: otra red Docker (detecta cuál), `host.docker.internal` sin
-  `extra_hosts`, conexión rechazada, timeout.
-- Errores recientes en los logs, agrupados.
-
-Cada problema explica su solución y la TUI ofrece aplicarla: parchea el `docker-compose`
-(puertos, `extra_hosts`, redes externas; idempotente, validado con `docker compose config`
-y con copia previa) y recrea solo Caddy con `--no-deps`. Si no puede escribir en el
-compose, te muestra el fragmento YAML para pegarlo a mano.
-
-## Notas de diseño
-
-- La validación escribe el candidato junto al Caddyfile y monta esa carpeta en un
-  contenedor desechable, así los `import` a ficheros relativos funcionan y no se toca el
-  Caddy en marcha.
-- El Caddyfile se guarda sobre el mismo inode (no se reemplaza el fichero) para no romper
-  bind-mounts de fichero único.
-- Los backups completos incluyen `.env` (con posibles secretos): se crean con permisos 600.
-
-## Pruebas
+Download the `.deb` from the [latest release](https://github.com/mgoreiro/caddy-tui/releases/latest)
+and install it (Debian, Ubuntu, Raspberry Pi OS, Armbian… — the package is architecture independent):
 
 ```bash
-python3 -m unittest discover -s tests
+sudo apt install ./caddy-tui_*_all.deb
+caddy-tui
 ```
 
-## Licencia
+You can also run it without installing: it is a single Python file (`./caddy-tui.py`; run
+`make mo` first if you want the Spanish translation from a checkout).
+
+## Usage
+
+It autodetects the Caddy container and, from it, the image, the mounted `Caddyfile` and the
+`docker compose` project/service. If there are several containers you get to choose. Any value
+can be forced:
+
+| Option | Variable | Purpose |
+|--------|----------|---------|
+| `--container` | `CADDY_CONTAINER` | Caddy container |
+| `--caddyfile` | `CADDY_CADDYFILE` | Caddyfile path on the host |
+| `--dir` | `CADDY_DIR` | project folder (compose, `.env`, backups) |
+| `--compose` | `CADDY_COMPOSE` | docker compose file |
+| `--service` | `CADDY_SERVICE` | Caddy service in the compose file |
+| `--image` | `CADDY_IMAGE` | image used to validate/format |
+| `--lang` | `CADDY_TUI_LANG` | interface language |
+
+If the `Caddyfile` belongs to another user (e.g. under `/root/`), run it with `sudo`.
+
+## Language
+
+The interface is available in **English** and **Spanish**. At startup the language is chosen in
+this order:
+
+1. `--lang en|es|auto` (`auto` ignores the saved preference),
+2. the `CADDY_TUI_LANG` variable,
+3. the preference saved in `~/.config/caddy-tui/config.json`,
+4. the system language (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`),
+5. English.
+
+Inside the program, press **`L`** to switch language instantly; the choice is saved.
+
+## Features
+
+| Key | Action |
+|-----|--------|
+| `a` | **Add-service wizard**: form (domain, upstream, HTTPS upstream, gzip, security headers, access log, optional user/password). Generates the block, validates it, shows a preview and appends it |
+| `t` | **Live traffic monitor**: requests/s, 2xx–5xx codes, latency, graph, top domains and IPs, latest requests (`p` pause, `w` window 1/5/15 min). Needs `log` in the site |
+| `d` | **Diagnostics and repair** (see below) |
+| `e` | Edit the Caddyfile: validated before saving, with a previous backup |
+| `v` / `l` | Validate / hot reload (validates first) |
+| `s` / `x` / `r` | Start or apply / stop / restart |
+| `g` | View logs |
+| `f` | Format the Caddyfile |
+| `c` | View the Caddyfile |
+| `k` / `b` | Create / restore a backup (`Caddyfile` + `.env` in `.caddy-backups/`) |
+| `n` | Edit `.env` |
+| `L` | Change language (English / Español) |
+| `q` | Quit |
+
+### What the diagnostics check
+
+- Docker available, and the `{$VAR}` placeholders of the Caddyfile defined.
+- Caddyfile valid (with a specific hint for an `import` without a snippet).
+- The container uses the **same Caddyfile as the disk** (an editor that replaces the file leaves
+  a single-file bind mount pointing at the old one).
+- Site **ports** not published by the container.
+- **Unreachable upstreams**: another Docker network (it finds which one), `host.docker.internal`
+  without `extra_hosts`, connection refused, timeout.
+- Recent errors in the logs, grouped.
+
+Each problem comes with its fix and the TUI offers to apply it: it patches the `docker-compose`
+file (ports, `extra_hosts`, external networks; idempotent, checked with `docker compose config`,
+backup first) and recreates only Caddy with `--no-deps`. If it cannot write the compose file,
+it shows the YAML to paste by hand.
+
+## Design notes
+
+- Validation writes the candidate next to the Caddyfile and mounts that folder in a throwaway
+  container, so relative `import`s work and the running Caddy is never touched.
+- The Caddyfile is saved over the same inode (never replaced) so single-file bind mounts keep
+  working.
+- Full backups include `.env` (possible secrets): they are created with mode 600.
+
+## Development
+
+```bash
+make test        # compile the catalogs and run the tests
+make pot         # re-extract translatable strings (po/caddy-tui.pot)
+make update-po   # sync the .po files with the .pot
+```
+
+**Adding a language:** `cp po/caddy-tui.pot po/xx.po`, fill in the translations (header
+`Language: xx`), run `make mo`. The tests check that no string is missing or obsolete and that the
+`{placeholders}` match.
+
+**Debian package:** `dpkg-buildpackage -us -uc -b` (needs `debhelper dh-python gettext python3`).
+Publishing a GitHub release triggers a workflow that builds the `.deb` and attaches it.
+
+## License
 
 MIT

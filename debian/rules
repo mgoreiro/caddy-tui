@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/caddy-tui PREFIX=/usr
+	sed -i '1s|^#!.*|#!/usr/bin/python3|' $(CURDIR)/debian/caddy-tui/usr/bin/caddy-tui
