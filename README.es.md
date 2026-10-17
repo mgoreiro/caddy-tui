@@ -81,6 +81,26 @@ Cada problema explica su solución y la TUI ofrece aplicarla: parchea el `docker
 y con copia previa) y recrea solo Caddy con `--no-deps`. Si no puede escribir en el
 compose, te muestra el fragmento YAML para pegarlo a mano.
 
+## Monitorización y alertas (`--check`)
+
+`caddy-tui --check` ejecuta el mismo diagnóstico una sola vez, sin interfaz, y termina. Es de solo
+lectura, así que se puede programar sin riesgo:
+
+| Código de salida | Significado |
+|------------------|-------------|
+| `0` | todo correcto |
+| `1` | solo avisos |
+| `2` | al menos un problema |
+| `3` | no se pudo ejecutar (sin Docker, contenedor o Caddyfile no encontrados, varios contenedores sin elegir) |
+
+Con `--quiet` imprime solo avisos y problemas (nada si todo va bien) y con `--json` una salida para
+máquinas (`status`, `problems`, `warnings`, `checks[]`). Los códigos siguen la convención de
+Nagios/Icinga, así que sirve también como plugin de monitorización.
+
+Se instalan ejemplos listos para usar en `/usr/share/doc/caddy-tui/examples/` (y están en
+[`examples/`](examples)): un **servicio + timer de systemd** que comprueba cada hora y un script que
+envía un mensaje por **Telegram** si la comprobación falla.
+
 ## Notas de diseño
 
 - La validación escribe el candidato junto al Caddyfile y monta esa carpeta en un

@@ -36,6 +36,7 @@ can be forced:
 | `--service` | `CADDY_SERVICE` | Caddy service in the compose file |
 | `--image` | `CADDY_IMAGE` | image used to validate/format |
 | `--lang` | `CADDY_TUI_LANG` | interface language |
+| `--check`, `--json`, `-q` | | headless diagnostics (see *Monitoring and alerts*) |
 
 If the `Caddyfile` belongs to another user (e.g. under `/root/`), run it with `sudo`.
 
@@ -86,6 +87,31 @@ Each problem comes with its fix and the TUI offers to apply it: it patches the `
 file (ports, `extra_hosts`, external networks; idempotent, checked with `docker compose config`,
 backup first) and recreates only Caddy with `--no-deps`. If it cannot write the compose file,
 it shows the YAML to paste by hand.
+
+## Monitoring and alerts (`--check`)
+
+`caddy-tui --check` runs the same diagnostics once, without the interface, and exits. It is
+read-only, so it is safe to schedule:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | everything is fine |
+| `1` | warnings only |
+| `2` | at least one problem |
+| `3` | could not run (no Docker, container or Caddyfile not found, several containers and none chosen) |
+
+Add `--quiet` to print only warnings and problems (nothing if all is well) and `--json` for
+machine-readable output (`status`, `problems`, `warnings`, `checks[]`). These exit codes follow the
+Nagios/Icinga convention, so it also works as a monitoring plugin.
+
+Ready-to-use examples are installed in `/usr/share/doc/caddy-tui/examples/` (and live in
+[`examples/`](examples)): a **systemd service + timer** that checks every hour, and a script that sends a
+**Telegram** message when the check fails.
+
+```bash
+# quick cron example (hourly, mail the output when there is a problem)
+0 * * * *  root  caddy-tui --check --quiet --lang en
+```
 
 ## Design notes
 
