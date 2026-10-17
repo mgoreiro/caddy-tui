@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 21:32+0200\n"
+"POT-Creation-Date: 2026-10-17 21:56+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -48,6 +48,9 @@ msgid "Traffic monitor"
 msgstr ""
 
 msgid "Diagnostics & repair"
+msgstr ""
+
+msgid "HTTPS certificates"
 msgstr ""
 
 msgid "Edit Caddyfile"
@@ -141,6 +144,56 @@ msgid "in service '{service}':"
 msgstr ""
 
 msgid "and at the end of the file:"
+msgstr ""
+
+msgid "Could not read the certificate storage of the container."
+msgstr ""
+
+#, python-brace-format
+msgid "{names} · internal CA (local, renewed automatically)"
+msgstr ""
+
+msgid ""
+"Caddy renews about 30 days before expiry. If it has not, check the ACME "
+"errors below or the logs [g]."
+msgstr ""
+
+#, python-brace-format
+msgid "{names} · {issuer} · EXPIRED on {date}"
+msgstr ""
+
+#, python-brace-format
+msgid "{names} · {issuer} · about to expire: {date} ({days} days left)"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"{names} · {issuer} · renewal pending: valid until {date} ({days} days left)"
+msgstr ""
+
+#, python-brace-format
+msgid "{names} · {issuer} · valid until {date} ({days} days left)"
+msgstr ""
+
+#, python-brace-format
+msgid "Let's Encrypt/ACME is failing for {domain}"
+msgstr ""
+
+msgid ""
+"Typical causes: DNS not pointing here, ports 80/443 closed, or rate limits "
+"(wait an hour)."
+msgstr ""
+
+#, python-brace-format
+msgid "No certificate yet for {domain}"
+msgstr ""
+
+msgid ""
+"Caddy requests it on the first HTTPS request. Check that the DNS points to "
+"this server and that ports 80 and 443 are reachable from the Internet."
+msgstr ""
+
+msgid "No certificates stored yet"
 msgstr ""
 
 msgid "Welcome. Press a key from the menu."
@@ -614,6 +667,10 @@ msgstr ""
 msgid "No errors in the logs of the last 10 min"
 msgstr ""
 
+#, python-brace-format
+msgid "HTTPS certificates valid ({n})"
+msgstr ""
+
 msgid "Running checks (may take a few seconds)..."
 msgstr ""
 
@@ -678,6 +735,9 @@ msgstr ""
 msgid ""
 "If you changed variables the container uses, use [s] to recreate it with "
 "them."
+msgstr ""
+
+msgid "Reading certificates..."
 msgstr ""
 
 msgid "Language"

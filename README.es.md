@@ -55,6 +55,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 | `a` | **Asistente para añadir un servicio**: formulario (dominio, destino, HTTPS al destino, gzip, cabeceras de seguridad, log, usuario/contraseña opcional). Genera el bloque, lo valida, muestra vista previa y lo añade |
 | `t` | **Monitor de tráfico** en vivo: peticiones/s, códigos 2xx–5xx, latencia, gráfica, top dominios e IPs y últimas peticiones (`p` pausa, `w` ventana 1/5/15 min). Requiere `log` en el sitio |
 | `d` | **Diagnóstico y reparación** (ver abajo) |
+| `h` | **Certificados HTTPS**: nombres, emisor y caducidad de cada certificado que Caddy tiene guardado; avisa si uno está a punto de caducar (Caddy debería haberlo renovado), si un dominio aún no tiene o si Let's Encrypt/ACME está fallando (mostrando el error). El diagnóstico incluye las mismas comprobaciones |
 | `e` | Editar el Caddyfile: se valida antes de guardar, con copia previa |
 | `v` / `l` | Validar / recargar en caliente (sin cortes, validando antes) |
 | `s` / `x` / `r` | Arrancar o aplicar / parar / reiniciar |
