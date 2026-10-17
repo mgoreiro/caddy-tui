@@ -2,3 +2,13 @@ __pycache__/
 .caddy-backups/
 .Caddyfile.candidate.*
 .compose.candidate.*
+locale/
+*.deb
+*.buildinfo
+*.changes
+debian/.debhelper/
+debian/caddy-tui/
+debian/files
+debian/*.substvars
+debian/*.debhelper.log
+debian/debhelper-build-stamp

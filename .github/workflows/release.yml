@@ -1,0 +1,42 @@
+name: release
+# Builds the .deb and attaches it to the GitHub release when one is published.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload to (e.g. v1.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Tag, __version__ and debian/changelog agree
+        run: |
+          v="${TAG#v}"
+          code=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' caddy-tui.py)
+          deb=$(dpkg-parsechangelog -S Version 2>/dev/null || sed -n '1s/^[^(]*(\([^)]*\)).*/\1/p' debian/changelog)
+          echo "tag=$v code=$code changelog=$deb"
+          [ "$v" = "$code" ] && [ "$v" = "$deb" ]
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y debhelper dh-python gettext python3 fakeroot lintian
+      - name: Build
+        run: dpkg-buildpackage -us -uc -b
+      - name: Lint
+        run: lintian --fail-on error ../caddy-tui_*_all.deb
+      - name: Upload to the release
+        run: |
+          cd ..
+          sha256sum caddy-tui_*_all.deb > SHA256SUMS
+          gh release upload "$TAG" caddy-tui_*_all.deb SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"

@@ -1,0 +1,104 @@
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.1.0" "User Commands"
+.SH NAME
+caddy-tui \- terminal UI to manage a Caddy server running in Docker
+.SH SYNOPSIS
+.B caddy-tui
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B caddy-tui
+is an interactive terminal interface for administering a Caddy container:
+editing the Caddyfile (validated before saving, with backups), hot reload, a
+wizard to add services, a live traffic monitor and guided diagnostics.
+.PP
+The Caddy container, its Caddyfile, image and docker compose project are
+autodetected. If several Caddy containers exist, one can be chosen at startup.
+If the Caddyfile belongs to another user, run it with
+.BR sudo .
+.SH OPTIONS
+.TP
+.BI \-\-container " NAME"
+Caddy container. Environment: CADDY_CONTAINER.
+.TP
+.BI \-\-caddyfile " PATH"
+Caddyfile path on the host. Environment: CADDY_CADDYFILE.
+.TP
+.BI \-\-dir " DIR"
+Project folder (compose file, .env, backups). Environment: CADDY_DIR.
+.TP
+.BI \-\-compose " FILE"
+docker compose file. Environment: CADDY_COMPOSE.
+.TP
+.BI \-\-service " NAME"
+Caddy service name in the compose file. Environment: CADDY_SERVICE.
+.TP
+.BI \-\-image " IMAGE"
+Image used to validate and format. Environment: CADDY_IMAGE.
+.TP
+.BI \-\-lang " LANG"
+Interface language: \fBauto\fR or one of the installed languages (\fBen\fR,
+\fBes\fR). Environment: CADDY_TUI_LANG.
+.TP
+.B \-\-version
+Show the version and exit.
+.SH LANGUAGE
+The language is chosen at startup in this order: \fB\-\-lang\fR,
+CADDY_TUI_LANG, the preference saved with the \fBL\fR key
+(\fI~/.config/caddy-tui/config.json\fR), the system locale
+(LANGUAGE, LC_ALL, LC_MESSAGES, LANG), and finally English.
+Pressing \fBL\fR inside the program switches language and saves the choice.
+.SH KEYS
+.TP
+.B a
+Add service (wizard).
+.TP
+.B t
+Traffic monitor.
+.TP
+.B d
+Diagnostics and repair.
+.TP
+.B e
+Edit the Caddyfile.
+.TP
+.B v " / " l
+Validate / reload the configuration.
+.TP
+.B s " / " x " / " r
+Start or apply / stop / restart.
+.TP
+.B g
+View logs.
+.TP
+.B f
+Format the Caddyfile.
+.TP
+.B c
+View the Caddyfile.
+.TP
+.B k " / " b
+Create / restore a backup (Caddyfile and .env).
+.TP
+.B n
+Edit .env.
+.TP
+.B L
+Change the interface language.
+.TP
+.B q
+Quit.
+.SH ENVIRONMENT
+.TP
+.B EDITOR
+Editor used for editing files (default: nano, then vi).
+.SH FILES
+.TP
+.I ~/.config/caddy-tui/config.json
+Saved preferences (language).
+.TP
+.I .caddy-backups/
+Backups, inside the project folder.
+.SH AUTHOR
+Miguel González Oreiro <mgoreiro@gmail.com>
+.SH SEE ALSO
+.BR docker (1),
+.BR caddy (8)

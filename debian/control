@@ -1,0 +1,33 @@
+Source: caddy-tui
+Section: admin
+Priority: optional
+Maintainer: Miguel González Oreiro <mgoreiro@gmail.com>
+Build-Depends: debhelper-compat (= 13), dh-python, gettext, python3
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/mgoreiro/caddy-tui
+Vcs-Git: https://github.com/mgoreiro/caddy-tui.git
+Vcs-Browser: https://github.com/mgoreiro/caddy-tui
+
+Package: caddy-tui
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3:any, docker.io | docker-ce-cli
+Recommends: nano
+Suggests: docker-compose-v2 | docker-compose-plugin
+Description: terminal UI to manage a Caddy server running in Docker
+ caddy-tui is a dependency-free terminal interface for administering a Caddy
+ web server that runs in a Docker container.
+ .
+  * Edit the Caddyfile safely: changes are validated before saving, with
+    automatic backups; hot reload without downtime.
+  * Wizard to add reverse-proxy services (HTTPS upstreams, gzip, security
+    headers, access log, basic authentication).
+  * Live traffic monitor: requests per second, status codes, latency, top
+    domains and client IPs.
+  * Guided diagnostics that detect and fix common problems: stale Caddyfile
+    inside the container, unpublished ports, services on other Docker networks,
+    missing host.docker.internal, undefined variables.
+  * Start, stop, restart, logs, formatting, backup and restore.
+ .
+ The container, Caddyfile and docker compose project are autodetected. The
+ interface is available in English and Spanish.
