@@ -4,6 +4,7 @@ import json
 import os
 import re
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -148,6 +149,108 @@ def source_msgids():
     return {n.args[0].value for n in ast.walk(tree)
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("_", "N_")
             and n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)}
+
+
+LEAF_PEM = """-----BEGIN CERTIFICATE-----
+MIIBtDCCAVmgAwIBAgIUKxTVL12EGfvI1dYlyELpyNzTEqswCgYIKoZIzj0EAwIw
+KjEVMBMGA1UEAwwMZXhhbXBsZS50ZXN0MREwDwYDVQQKDAhUZXN0IE9yZzAgFw0y
+NjEwMTcxOTU2NDNaGA8yMTI2MDkyMzE5NTY0M1owKjEVMBMGA1UEAwwMZXhhbXBs
+ZS50ZXN0MREwDwYDVQQKDAhUZXN0IE9yZzBZMBMGByqGSM49AgEGCCqGSM49AwEH
+A0IABAujQyjzTT2l8mP40w5p36jTHnwEvFIctS1XwnoCDpVK6uxGMnZzAPGyW84D
++G5DYRXQDKadQz8MSkBsivbphHqjWzBZMB0GA1UdDgQWBBS+t1jYJp/gp/kDuQeT
+li9Ku4kMwTAPBgNVHRMBAf8EBTADAQH/MCcGA1UdEQQgMB6CDGV4YW1wbGUudGVz
+dIIOKi5leGFtcGxlLnRlc3QwCgYIKoZIzj0EAwIDSQAwRgIhAKRM8kz1H42/ymhq
+SeqhG4zKiB0fbHWSzJoHlrbwrsvvAiEA+x5Bn43Y9c69Mra0FCnqKEN5gfpeSs3Y
+OHFdYk79B2o=
+-----END CERTIFICATE-----
+"""
+ROOT_PEM = """-----BEGIN CERTIFICATE-----
+MIIBXTCCAQSgAwIBAgIUTQqDZQAHFtkMYYhvFwAt+vmCvx0wCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJVGVzdCBSb290MCAXDTI2MTAxNzE5NTY0M1oYDzIxMjYwOTIz
+MTk1NjQzWjAUMRIwEAYDVQQDDAlUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAAQLo0Mo8009pfJj+NMOad+o0x58BLxSHLUtV8J6Ag6VSursRjJ2cwDx
+slvOA/huQ2EV0AymnUM/DEpAbIr26YR6ozIwMDAdBgNVHQ4EFgQUvrdY2Caf4Kf5
+A7kHk5YvSruJDMEwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNHADBEAiBb
+oGxJFdNyr7yrDGQLcZiiMGtWy63JfqUQ6P5nsJ8fngIgM7RqoQ5XC01I2zc+c8W0
+EltKuHE+xAVsb/R/mRdqOCY=
+-----END CERTIFICATE-----
+"""
+
+
+class Certificates(unittest.TestCase):
+    def test_parsea_hoja_de_un_bundle(self):
+        certs = c.parse_pem_certificates(LEAF_PEM + ROOT_PEM)
+        self.assertEqual(len(certs), 2)
+        leaf = certs[0]
+        self.assertEqual(leaf["names"], ["example.test", "*.example.test"])
+        self.assertEqual(leaf["cn"], "example.test")
+        self.assertEqual(leaf["issuer"], "example.test")
+        self.assertEqual(leaf["not_after"].year, 2126)
+        self.assertEqual(certs[1]["names"], ["Test Root"])   # sin SAN -> CN
+
+    def test_basura_se_ignora(self):
+        self.assertEqual(c.parse_pem_certificates("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----"), [])
+        self.assertEqual(c.parse_pem_certificates("nada"), [])
+
+    def test_cert_covers(self):
+        self.assertTrue(c.cert_covers(["a.example.com"], "a.example.com"))
+        self.assertTrue(c.cert_covers(["*.example.com"], "a.example.com"))
+        self.assertFalse(c.cert_covers(["*.example.com"], "a.b.example.com"))
+        self.assertFalse(c.cert_covers(["a.example.com"], "b.example.com"))
+
+    def test_site_domains(self):
+        text = ("{$DOMAIN}:8443 {\n}\nhttp://plain.example.com {\n}\nlocalhost {\n}\nnas.lan {\n}\n"
+                "192.168.1.5 {\n}\n*.wild.example.com {\n}\napp.example.com:2283 {\n}\n")
+        with mock.patch.object(c, "runtime_env", return_value={"DOMAIN": "Main.Example.com"}):
+            self.assertEqual(c.site_domains(text), ["main.example.com", "app.example.com"])
+
+
+class CertReport(unittest.TestCase):
+    NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def cert(self, days, names=("a.example.com",), internal=False):
+        return {"names": list(names), "cn": names[0], "issuer": "R11", "internal": internal, "file": "x",
+                "not_after": self.NOW + timedelta(days=days), "not_before": self.NOW - timedelta(days=60)}
+
+    def report(self, certs, text="", errs=None, domains=()):
+        with mock.patch.object(c, "read_certificates", return_value=certs), \
+             mock.patch.object(c, "site_domains", return_value=list(domains)), \
+             mock.patch.object(c, "acme_errors", return_value=errs or {}):
+            return c.cert_report(text, now=self.NOW)
+
+    def levels(self, certs, **kw):
+        return [r[0] for r in self.report(certs, **kw)[0]]
+
+    def test_umbrales(self):
+        self.assertEqual(self.levels([self.cert(60)]), ["ok"])
+        self.assertEqual(self.levels([self.cert(19)]), ["warn"])
+        self.assertEqual(self.levels([self.cert(6)]), ["err"])
+        self.assertEqual(self.levels([self.cert(-1)]), ["err"])
+
+    def test_ca_interna_nunca_alerta(self):
+        self.assertEqual(self.levels([self.cert(0.1, internal=True)]), ["ok"])
+
+    def test_dominio_sin_certificado(self):
+        rows, n = self.report([], domains=["new.example.com"])
+        self.assertEqual((rows[0][0], n), ("warn", 0))
+        self.assertIn("new.example.com", rows[0][1])
+
+    def test_dominio_cubierto_por_wildcard(self):
+        rows, __ = self.report([self.cert(60, names=("*.example.com",))], domains=["new.example.com"])
+        self.assertEqual([r[0] for r in rows], ["ok"])
+
+    def test_error_acme_es_error_con_detalle(self):
+        rows, __ = self.report([], domains=["new.example.com"], errs={"new.example.com": "dns problem"})
+        self.assertEqual(rows[0][0], "err")
+        self.assertIn("dns problem", rows[0][2][0])
+
+    def test_almacen_ilegible(self):
+        rows, n = self.report(None)
+        self.assertEqual((rows[0][0], n), ("warn", 0))
+
+    def test_sin_certificados(self):
+        rows, __ = self.report([])
+        self.assertEqual(rows[0][0], "ok")
 
 
 class Translations(unittest.TestCase):

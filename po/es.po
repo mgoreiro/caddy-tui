@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 21:32+0200\n"
+"POT-Creation-Date: 2026-10-17 21:56+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -47,6 +47,9 @@ msgstr "Monitor de tráfico"
 
 msgid "Diagnostics & repair"
 msgstr "Diagnóstico y reparación"
+
+msgid "HTTPS certificates"
+msgstr "Certificados HTTPS"
 
 msgid "Edit Caddyfile"
 msgstr "Editar Caddyfile"
@@ -146,6 +149,64 @@ msgstr "en el servicio '{service}':"
 
 msgid "and at the end of the file:"
 msgstr "y al final del fichero:"
+
+msgid "Could not read the certificate storage of the container."
+msgstr "No se pudo leer el almacén de certificados del contenedor."
+
+#, python-brace-format
+msgid "{names} · internal CA (local, renewed automatically)"
+msgstr "{names} · CA interna (local, se renueva sola)"
+
+msgid ""
+"Caddy renews about 30 days before expiry. If it has not, check the ACME "
+"errors below or the logs [g]."
+msgstr ""
+"Caddy renueva unos 30 días antes de que caduque. Si no lo ha hecho, revisa "
+"los errores ACME de abajo o los logs [g]."
+
+#, python-brace-format
+msgid "{names} · {issuer} · EXPIRED on {date}"
+msgstr "{names} · {issuer} · CADUCADO el {date}"
+
+#, python-brace-format
+msgid "{names} · {issuer} · about to expire: {date} ({days} days left)"
+msgstr "{names} · {issuer} · a punto de caducar: {date} (quedan {days} días)"
+
+#, python-brace-format
+msgid ""
+"{names} · {issuer} · renewal pending: valid until {date} ({days} days left)"
+msgstr ""
+"{names} · {issuer} · renovación pendiente: válido hasta {date} (quedan "
+"{days} días)"
+
+#, python-brace-format
+msgid "{names} · {issuer} · valid until {date} ({days} days left)"
+msgstr "{names} · {issuer} · válido hasta {date} (quedan {days} días)"
+
+#, python-brace-format
+msgid "Let's Encrypt/ACME is failing for {domain}"
+msgstr "Let's Encrypt/ACME está fallando para {domain}"
+
+msgid ""
+"Typical causes: DNS not pointing here, ports 80/443 closed, or rate limits "
+"(wait an hour)."
+msgstr ""
+"Causas típicas: el DNS no apunta aquí, puertos 80/443 cerrados o límites de "
+"frecuencia (espera una hora)."
+
+#, python-brace-format
+msgid "No certificate yet for {domain}"
+msgstr "Aún no hay certificado para {domain}"
+
+msgid ""
+"Caddy requests it on the first HTTPS request. Check that the DNS points to "
+"this server and that ports 80 and 443 are reachable from the Internet."
+msgstr ""
+"Caddy lo solicita en la primera petición HTTPS. Comprueba que el DNS apunta "
+"a este servidor y que los puertos 80 y 443 son accesibles desde Internet."
+
+msgid "No certificates stored yet"
+msgstr "Todavía no hay certificados guardados"
 
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
@@ -653,6 +714,10 @@ msgstr "{count} errores en los logs de los últimos 10 min"
 msgid "No errors in the logs of the last 10 min"
 msgstr "Sin errores en los logs de los últimos 10 min"
 
+#, python-brace-format
+msgid "HTTPS certificates valid ({n})"
+msgstr "Certificados HTTPS válidos ({n})"
+
 msgid "Running checks (may take a few seconds)..."
 msgstr "Ejecutando comprobaciones (puede tardar unos segundos)..."
 
@@ -723,6 +788,9 @@ msgid ""
 msgstr ""
 "Si has cambiado variables que usa el contenedor, usa [s] para recrearlo con "
 "ellas."
+
+msgid "Reading certificates..."
+msgstr "Leyendo certificados..."
 
 msgid "Language"
 msgstr "Idioma"

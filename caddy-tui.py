@@ -40,7 +40,7 @@ import time
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -155,6 +155,7 @@ MENU = [
     ("a", N_("Add service (wizard)")),
     ("t", N_("Traffic monitor")),
     ("d", N_("Diagnostics & repair")),
+    ("h", N_("HTTPS certificates")),
     ("e", N_("Edit Caddyfile")),
     ("v", N_("Validate configuration")),
     ("l", N_("Reload (no downtime)")),
@@ -619,6 +620,178 @@ def compose_snippet(need):
         out += ["", "# " + _("and at the end of the file:"), "networks:"]
         out += [f"  {n}:\n    external: true" for n in need["nets"]]
     return "\n".join(out)
+
+
+# ------------------------------------------------------------ certificates ---
+# Minimal DER reader: just enough X.509 to show validity, issuer and names
+# without depending on openssl or third-party libraries.
+def _der(data, pos):
+    """Read one DER element header at `pos` -> (tag, content_start, content_end)."""
+    tag, ln, pos = data[pos], data[pos + 1], pos + 2
+    if ln & 0x80:
+        n = ln & 0x7F
+        ln, pos = int.from_bytes(data[pos:pos + n], "big"), pos + n
+    return tag, pos, pos + ln
+
+
+def _children(data, start, end):
+    pos = start
+    while pos < end:
+        tag, s, e = _der(data, pos)
+        yield tag, s, e
+        pos = e
+
+
+def _der_time(raw):
+    t = raw.decode("ascii")
+    fmt = "%y%m%d%H%M%SZ" if len(t) == 13 else "%Y%m%d%H%M%SZ"
+    return datetime.strptime(t, fmt).replace(tzinfo=timezone.utc)
+
+
+def _name_attrs(data, start, end):
+    """X.501 Name -> {oid_hex: text}."""
+    out = {}
+    for _t1, s1, e1 in _children(data, start, end):
+        for _t2, s2, e2 in _children(data, s1, e1):
+            kids = list(_children(data, s2, e2))
+            if len(kids) == 2 and kids[0][0] == 0x06:
+                out[data[kids[0][1]:kids[0][2]].hex()] = data[kids[1][1]:kids[1][2]].decode("utf-8", "replace")
+    return out
+
+
+def parse_certificate(der):
+    """DER X.509 -> {names, cn, issuer, not_before, not_after}."""
+    __, s, e = _der(der, 0)
+    tbs = list(_children(der, *list(_children(der, s, e))[0][1:]))
+    i = 1 if tbs[0][0] == 0xA0 else 0          # optional [0] version
+    issuer = _name_attrs(der, *tbs[i + 2][1:])
+    subject = _name_attrs(der, *tbs[i + 4][1:])
+    times = [der[a:b] for __, a, b in _children(der, *tbs[i + 3][1:])]
+    names = []
+    for tag, a, b in tbs[i + 5:]:
+        if tag != 0xA3:                        # [3] extensions
+            continue
+        for ___, es, ee in _children(der, *next(_children(der, a, b))[1:]):
+            ext = list(_children(der, es, ee))
+            if der[ext[0][1]:ext[0][2]].hex() == "551d11":       # subjectAltName
+                __, os_, oe = _der(der, ext[-1][1])              # inside the OCTET STRING
+                names = [der[x:y].decode("ascii", "replace") for t, x, y in _children(der, os_, oe) if t == 0x82]
+    cn = subject.get("550403", "")
+    return {"names": names or ([cn] if cn else []), "cn": cn,
+            "issuer": issuer.get("550403") or issuer.get("55040a") or "?",
+            "not_before": _der_time(times[0]), "not_after": _der_time(times[1])}
+
+
+def parse_pem_certificates(text):
+    """Every certificate in a PEM bundle, parsed (unparseable ones are skipped)."""
+    import base64
+    out = []
+    for body in re.findall(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", text, re.S):
+        try:
+            out.append(parse_certificate(base64.b64decode("".join(body.split()))))
+        except (ValueError, IndexError, StopIteration):
+            continue
+    return out
+
+
+def read_certificates():
+    """Leaf certificates stored by Caddy in the container, or None if unreadable."""
+    script = ('d="${XDG_DATA_HOME:-$HOME/.local/share}/caddy/certificates"; '
+              'find "$d" -name "*.crt" -exec sh -c \'echo "###FILE $1"; cat "$1"\' _ {} \\; 2>/dev/null')
+    rc, out = run(["docker", "exec", CONTAINER, "sh", "-c", script], timeout=30)
+    if rc != 0:
+        return None
+    certs = []
+    for chunk in out.split("###FILE ")[1:]:
+        path, __, pem = chunk.partition("\n")
+        parsed = parse_pem_certificates(pem)
+        if parsed:                              # first block is the leaf; the rest is the chain
+            certs.append(dict(parsed[0], file=path.strip(), internal="/certificates/local/" in path))
+    return certs
+
+
+def site_domains(text):
+    """Public domain names Caddy must get certificates for, per the Caddyfile."""
+    env, out = runtime_env(text), []
+    for a in site_addresses(text):
+        if a.startswith("http://"):
+            continue
+        a = re.sub(r"^https://", "", a)
+        a = re.sub(r"\{\$([A-Za-z_]\w*)(:[^}]*)?\}", lambda m: env.get(m.group(1)) or (m.group(2) or ":")[1:], a)
+        a = re.sub(r":\d+$", "", a).lower()
+        if (not a or "." not in a or "*" in a or re.fullmatch(r"[\d.]+|[0-9a-f:]+", a)
+                or a.endswith((".localhost", ".local", ".test", ".internal", ".lan", ".home.arpa"))):
+            continue
+        if a not in out:
+            out.append(a)
+    return out
+
+
+def cert_covers(names, domain):
+    for n in names:
+        n = n.lower()
+        if n == domain or (n.startswith("*.") and domain.partition(".")[2] == n[2:]):
+            return True
+    return False
+
+
+def acme_errors(since="24h"):
+    """{domain: last ACME error text} from the container logs."""
+    rc, logs = run(["docker", "logs", "--since", since, CONTAINER], timeout=30)
+    errs = {}
+    for line in logs.splitlines():
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        if str(j.get("logger", "")).startswith(("tls.obtain", "tls.issuance", "tls.renew")) and j.get("level") in ("error", "warn"):
+            ident = j.get("identifier") or j.get("identifiers")
+            if isinstance(ident, list):
+                ident = ident[0] if ident else None
+            if ident and j.get("error"):
+                errs[str(ident).lower()] = str(j["error"])
+    return errs
+
+
+def cert_report(text, now=None):
+    """-> (rows, n_certs); rows = [(level, title, [details])], level in ok/warn/err."""
+    certs = read_certificates()
+    if certs is None:
+        return [("warn", _("Could not read the certificate storage of the container."), [])], 0
+    now = now or datetime.now(timezone.utc)
+    rows = []
+    for c in sorted(certs, key=lambda c: c["not_after"]):
+        names = ", ".join(c["names"][:3]) + ("…" if len(c["names"]) > 3 else "")
+        if c["internal"]:
+            rows.append(("ok", _("{names} · internal CA (local, renewed automatically)").format(names=names), []))
+            continue
+        days = (c["not_after"] - now).total_seconds() / 86400
+        date = c["not_after"].strftime("%Y-%m-%d")
+        fmt = dict(names=names, issuer=c["issuer"], date=date, days=int(days))
+        hint = [_("Caddy renews about 30 days before expiry. If it has not, check the ACME errors below or the logs [g].")]
+        if days < 0:
+            rows.append(("err", _("{names} · {issuer} · EXPIRED on {date}").format(**fmt), hint))
+        elif days < 7:
+            rows.append(("err", _("{names} · {issuer} · about to expire: {date} ({days} days left)").format(**fmt), hint))
+        elif days < 20:
+            rows.append(("warn", _("{names} · {issuer} · renewal pending: valid until {date} ({days} days left)").format(**fmt), hint))
+        else:
+            rows.append(("ok", _("{names} · {issuer} · valid until {date} ({days} days left)").format(**fmt), []))
+    errs = None
+    for d in site_domains(text):
+        if any(cert_covers(c["names"], d) for c in certs):
+            continue
+        errs = acme_errors() if errs is None else errs
+        if d in errs:
+            rows.append(("err", _("Let's Encrypt/ACME is failing for {domain}").format(domain=d), [
+                errs[d][:300],
+                _("Typical causes: DNS not pointing here, ports 80/443 closed, or rate limits (wait an hour).")]))
+        else:
+            rows.append(("warn", _("No certificate yet for {domain}").format(domain=d), [
+                _("Caddy requests it on the first HTTPS request. Check that the DNS points to this server and that ports 80 and 443 are reachable from the Internet.")]))
+    if not certs and not rows:
+        rows.append(("ok", _("No certificates stored yet"), []))
+    return rows, len(certs)
 
 
 # --------------------------------------------------------------------- UI ----
@@ -1256,6 +1429,13 @@ class App:
                 *[f"{n}× {m}" for m, n in errs.most_common(3)])
         else:
             add("ok", _("No errors in the logs of the last 10 min"))
+
+        rows, n_certs = cert_report(text)
+        problems = [r for r in rows if r[0] != "ok"]
+        for level, title, details in problems:
+            add(level, title, *details)
+        if n_certs and not problems:
+            add("ok", _("HTTPS certificates valid ({n})").format(n=n_certs))
         return L, fixes, need
 
     def act_diagnose(self):
@@ -1326,6 +1506,25 @@ class App:
         self.external_editor(ENVFILE)
         self.show(".env", _("If you changed variables the container uses, use [s] to recreate it with them."))
 
+    def act_certs(self):
+        state, __ = container_state()
+        if state != "running":
+            self.show(_("HTTPS certificates"), _("The container is not running. Use [s] to start it."))
+            return
+        self.busy(_("Reading certificates..."))
+        with open(CADDYFILE, encoding="utf-8") as f:
+            rows, __ = cert_report(f.read())
+        mark = {"ok": "✔", "warn": "⚠", "err": "✘"}
+        L = []
+        for level, title, details in rows:
+            L.append(f"{mark[level]} {title}")
+            L.extend("    " + d for d in details)
+        problems = sum(1 for r in rows if r[0] == "err")
+        warns = sum(1 for r in rows if r[0] == "warn")
+        L += ["", _("Result: {problems} problem(s), {warns} warning(s).").format(problems=problems, warns=warns)
+              if problems or warns else "✔ " + _("All good.")]
+        self.show(_("HTTPS certificates"), "\n".join(L))
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -1336,7 +1535,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "t": self.act_traffic, "d": self.act_diagnose, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "k": self.act_backup, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),
