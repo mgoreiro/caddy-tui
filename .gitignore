@@ -1,0 +1,4 @@
+__pycache__/
+.caddy-backups/
+.Caddyfile.candidate.*
+.compose.candidate.*

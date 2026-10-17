@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
 """
-caddy-tui — utilidad de terminal (TUI) para gestionar el Caddy de FileShare.
+caddy-tui — utilidad de terminal (TUI) para gestionar un Caddy que corre en Docker.
 
-Sin dependencias: solo Python 3 (stdlib, curses) y Docker. Ejecútalo desde
-cualquier sitio; trabaja siempre sobre la carpeta donde está este fichero:
+Sin dependencias: solo Python 3 (stdlib, curses) y Docker.
 
-    ./caddy-tui.py
+    ./caddy-tui.py                      # autodetecta el contenedor de Caddy
+    ./caddy-tui.py --container mi-caddy # o indica cuál
 
 Permite: ver el estado, diagnosticar y reparar problemas habituales, añadir
-servicios con un asistente, monitorizar el tráfico en vivo, editar el Caddyfile (con validación previa y copia de
-seguridad), validar, formatear, arrancar, parar, reiniciar, recargar la
-configuración en caliente, ver logs y restaurar copias anteriores.
+servicios con un asistente, monitorizar el tráfico en vivo, editar el Caddyfile
+(con validación previa y copia de seguridad), validar, formatear, arrancar,
+parar, reiniciar, recargar la configuración en caliente, ver logs y hacer/restaurar
+backups.
 
-Variables de entorno opcionales:
-    CADDY_CONTAINER  nombre del contenedor        (def. fileshare-caddy)
-    CADDY_SERVICE    servicio en docker compose   (def. caddy)
-    CADDY_COMPOSE    fichero compose              (def. docker-compose.https.yml)
-    CADDY_IMAGE      imagen para validar offline  (def. caddy:2-alpine)
-    EDITOR           editor a usar                (def. nano / vi)
+Todo se deduce del contenedor (imagen, Caddyfile montado, proyecto y servicio de
+docker compose); cualquier valor se puede forzar con opciones o variables:
+    --container / CADDY_CONTAINER   contenedor de Caddy
+    --caddyfile / CADDY_CADDYFILE   ruta del Caddyfile en el host
+    --dir       / CADDY_DIR         carpeta del proyecto (compose, .env, backups)
+    --compose   / CADDY_COMPOSE     fichero docker compose
+    --service   / CADDY_SERVICE     servicio de Caddy en el compose
+    --image     / CADDY_IMAGE       imagen usada para validar/formatear
+    EDITOR                          editor a usar (def. nano / vi)
 """
+import argparse
 import curses
 import json
 import os
@@ -34,14 +39,18 @@ import time
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-CONTAINER = os.environ.get("CADDY_CONTAINER", "fileshare-caddy")
-SERVICE = os.environ.get("CADDY_SERVICE", "caddy")
-COMPOSE = os.environ.get("CADDY_COMPOSE", "docker-compose.https.yml")
-IMAGE = os.environ.get("CADDY_IMAGE", "caddy:2-alpine")
-CADDYFILE = os.path.join(BASE, "Caddyfile")
-ENVFILE = os.path.join(BASE, ".env")
-BACKUPS = os.path.join(BASE, ".caddy-backups")
+__version__ = "1.0.0"
+
+# Se rellenan en configure() a partir de las opciones y del contenedor.
+BASE = os.getcwd()          # carpeta del proyecto: compose, .env, backups
+CONTAINER = ""
+SERVICE = "caddy"
+COMPOSE = ""                # vacío si el contenedor no se creó con docker compose
+IMAGE = "caddy:2-alpine"
+CADDYFILE = ""
+CADDYDIR = ""
+ENVFILE = ""
+BACKUPS = ""
 CONF_IN_CONTAINER = "/etc/caddy/Caddyfile"
 
 MENU = [
@@ -59,7 +68,7 @@ MENU = [
     ("c", "Ver Caddyfile"),
     ("k", "Crear backup (Caddyfile+.env)"),
     ("b", "Restaurar backup"),
-    ("n", "Editar .env (DOMAIN...)"),
+    ("n", "Editar .env"),
     ("q", "Salir"),
 ]
 
@@ -78,8 +87,114 @@ def run(cmd, stdin=None, timeout=120):
         return 124, f"Tiempo agotado ejecutando: {' '.join(cmd)}"
 
 
+def list_caddy_containers():
+    rc, out = run(["docker", "ps", "-a", "--format", "{{.Names}}|{{.Image}}|{{.State}}"], timeout=20)
+    rows = [l.split("|") for l in out.splitlines() if l.count("|") == 2]
+    return [r for r in rows if "caddy" in r[1].lower() or "caddy" in r[0].lower()]
+
+
+def inspect_container(name):
+    rc, out = run(["docker", "inspect", name], timeout=20)
+    try:
+        return json.loads(out)[0] if rc == 0 else None
+    except ValueError:
+        return None
+
+
+def configure(args):
+    """Deduce contenedor, Caddyfile, proyecto compose e imagen; forzables por opciones."""
+    global BASE, CONTAINER, SERVICE, COMPOSE, IMAGE, CADDYFILE, CADDYDIR, ENVFILE, BACKUPS, CONF_IN_CONTAINER
+    name = args.container
+    if not name:
+        cands = list_caddy_containers()
+        if not cands:
+            sys.exit("No encuentro ningún contenedor de Caddy. Indícalo con --container NOMBRE.")
+        if len(cands) == 1:
+            name = cands[0][0]
+        else:
+            print("Hay varios contenedores de Caddy:")
+            for i, (n, img, st) in enumerate(cands, 1):
+                print(f"  {i}) {n}  ({img}, {st})")
+            try:
+                name = cands[int(input("Elige número: ")) - 1][0]
+            except (ValueError, IndexError, EOFError):
+                sys.exit("Selección no válida. Usa --container NOMBRE.")
+    info = inspect_container(name)
+    if not info:
+        sys.exit(f"No existe el contenedor '{name}'.")
+    CONTAINER = name
+    labels = info["Config"].get("Labels") or {}
+    img = info["Config"].get("Image", "")
+    IMAGE = args.image or (img if img and not img.startswith("sha256:") else IMAGE)
+    SERVICE = args.service or labels.get("com.docker.compose.service") or SERVICE
+
+    src = None
+    for m in info.get("Mounts", []):
+        if m.get("Type") != "bind":
+            continue
+        dest = m["Destination"]
+        if dest.endswith("Caddyfile"):
+            CONF_IN_CONTAINER, src = dest, m["Source"]
+        elif dest == "/etc/caddy" and not src:
+            src = os.path.join(m["Source"], "Caddyfile")
+    CADDYFILE = os.path.abspath(args.caddyfile) if args.caddyfile else (src or os.path.join(os.getcwd(), "Caddyfile"))
+    if not os.path.isfile(CADDYFILE):
+        sys.exit(f"No encuentro el Caddyfile en {CADDYFILE}.\n"
+                 "Si pertenece a otro usuario, ejecuta con sudo; o indica la ruta con --caddyfile.")
+    if not os.access(CADDYFILE, os.R_OK | os.W_OK):
+        sys.exit(f"Sin permisos de lectura/escritura sobre {CADDYFILE}. Ejecuta con sudo o con otro usuario.")
+    CADDYDIR = os.path.dirname(CADDYFILE)
+
+    wd = labels.get("com.docker.compose.project.working_dir")
+    BASE = os.path.abspath(args.dir) if args.dir else (wd if wd and os.path.isdir(wd) else CADDYDIR)
+    cfg = (labels.get("com.docker.compose.project.config_files") or "").split(",")[0]
+    if args.compose:
+        COMPOSE = args.compose
+    elif cfg and os.path.isfile(cfg):
+        COMPOSE = cfg
+    elif cfg and os.path.isfile(os.path.join(BASE, os.path.basename(cfg))):
+        COMPOSE = os.path.join(BASE, os.path.basename(cfg))
+    ENVFILE = os.path.join(BASE, ".env")
+    BACKUPS = os.path.join(BASE, ".caddy-backups")
+
+
+def referenced_vars(text):
+    """[(nombre, tiene_valor_por_defecto)] de los {$VAR} / {$VAR:def} del Caddyfile."""
+    seen = {}
+    for m in re.finditer(r"\{\$([A-Za-z_][A-Za-z0-9_]*)(:[^}]*)?\}", text):
+        seen[m.group(1)] = seen.get(m.group(1), False) or m.group(2) is not None
+    return sorted(seen.items())
+
+
+def container_env():
+    rc, out = run(["docker", "inspect", "-f", "{{json .Config.Env}}", CONTAINER], timeout=15)
+    try:
+        return dict(e.split("=", 1) for e in (json.loads(out) or []) if "=" in e) if rc == 0 else {}
+    except ValueError:
+        return {}
+
+
+def runtime_env(text):
+    """Valores de las variables que usa el Caddyfile: contenedor primero, luego .env."""
+    cenv, env = container_env(), {}
+    for name, has_default in referenced_vars(text):
+        val = cenv.get(name) or read_env(name)
+        if val:
+            env[name] = val
+        elif not has_default:
+            env[name] = "example.com"  # solo para poder validar la sintaxis
+    return env
+
+
 def compose(*args):
-    return ["docker", "compose", "-f", COMPOSE, *args]
+    """Comando para gestionar Caddy; sin docker compose, equivalentes de `docker`."""
+    if COMPOSE:
+        return ["docker", "compose", "-f", COMPOSE, *args]
+    if args and args[0] in ("stop", "restart"):
+        return ["docker", args[0], CONTAINER]
+    if args and args[0] == "up" and "--force-recreate" not in args:
+        return ["docker", "start", CONTAINER]
+    return ["sh", "-c", "echo 'Esta acción necesita docker compose (el contenedor no se creó con él).'; exit 1"]
 
 
 def read_env(key):
@@ -126,13 +241,13 @@ def validate_text(text):
     El candidato se escribe como fichero junto al Caddyfile y se monta la carpeta
     del proyecto en /etc/caddy: así los "import" a ficheros relativos funcionan
     (con stdin no se resuelven)."""
-    domain = read_env("DOMAIN") or "example.com"
-    cand = os.path.join(BASE, f".Caddyfile.candidate.{os.getpid()}.{time.monotonic_ns()}")
+    cand = os.path.join(CADDYDIR, f".Caddyfile.candidate.{os.getpid()}.{time.monotonic_ns()}")
     try:
         with open(cand, "w", encoding="utf-8") as f:
             f.write(text)
-        cmd = ["docker", "run", "--rm", "-e", f"DOMAIN={domain}",
-               "-v", f"{BASE}:/etc/caddy:ro", "-w", "/etc/caddy", IMAGE,
+        envs = [x for k, v in runtime_env(text).items() for x in ("-e", f"{k}={v}")]
+        cmd = ["docker", "run", "--rm", *envs,
+               "-v", f"{CADDYDIR}:/etc/caddy:ro", "-w", "/etc/caddy", IMAGE,
                "caddy", "validate", "--config", f"/etc/caddy/{os.path.basename(cand)}",
                "--adapter", "caddyfile"]
         rc, out = run(cmd, timeout=60)
@@ -188,7 +303,7 @@ def site_addresses(text):
         stripped = line.strip()
         if depth == 0 and stripped and not stripped.startswith("#") and stripped.endswith("{"):
             head = stripped[:-1].strip()
-            if head:  # el bloque de opciones globales es "{" a secas
+            if head and not head.startswith("("):  # global "{" a secas y snippets "(nombre)" no son sitios
                 sites += [a.strip().rstrip(",") for a in head.split() if a.strip(",")]
         depth += line.count("{") - line.count("}")
         depth = max(depth, 0)
@@ -445,13 +560,13 @@ class App:
             return
         state, started = self.state
         color = {"running": 1, "exited": 2, "no existe": 2}.get(state, 3)
-        scr.addstr(0, 0, " Caddy · FileShare ".ljust(w), curses.A_REVERSE)
+        scr.addstr(0, 0, " Caddy TUI ".ljust(w), curses.A_REVERSE)
         scr.addstr(1, 1, "Contenedor: ")
         scr.addstr(f"{CONTAINER} ")
         scr.addstr(f"● {state}", curses.color_pair(color) | curses.A_BOLD)
         if state == "running":
             scr.addstr(f"  (activo {uptime(started)})")
-        scr.addstr(2, 1, f"Dominio: {read_env('DOMAIN') or '(DOMAIN no definido en .env)'}")
+        scr.addstr(2, 1, f"Caddyfile: {CADDYFILE}"[: w - 2])
 
         # menú en dos columnas
         top = 4
@@ -637,10 +752,12 @@ class App:
     def act_backup(self):
         os.makedirs(BACKUPS, exist_ok=True)
         dest = os.path.join(BACKUPS, "full-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".tar.gz")
-        names = [n for n in ("Caddyfile", ".env") if os.path.exists(os.path.join(BASE, n))]
+        files = [("Caddyfile", CADDYFILE), (".env", ENVFILE)]
+        names = [n for n, path in files if os.path.exists(path)]
         with tarfile.open(dest, "w:gz") as tar:
-            for n in names:
-                tar.add(os.path.join(BASE, n), arcname=n)
+            for n, path in files:
+                if os.path.exists(path):
+                    tar.add(path, arcname=n)
         os.chmod(dest, 0o600)  # .env contiene secretos
         self.show("Backup", f"✔ Backup creado: {os.path.relpath(dest, BASE)}\nContiene: {', '.join(names)}")
 
@@ -929,14 +1046,18 @@ class App:
             return L, fixes, need
         add("ok", f"Docker disponible (v{out.strip()})")
 
-        if read_env("DOMAIN"):
-            add("ok", f"DOMAIN definido en .env ({read_env('DOMAIN')})")
-        else:
-            add("err", "DOMAIN no está definido en .env",
-                "Solución: pulsa [n], define DOMAIN=tu.dominio.com y luego [s] para aplicarlo.")
-
         with open(CADDYFILE, encoding="utf-8") as f:
             text = f.read()
+        cenv = container_env()
+        refs = referenced_vars(text)
+        undefined = [n for n, d in refs if not d and not (cenv.get(n) or read_env(n))]
+        if undefined:
+            for n in undefined:
+                add("err", f"La variable {n} del Caddyfile no está definida (ni en el contenedor ni en .env)",
+                    f"Solución: define {n}=... en .env con [n] y aplícalo con [s].")
+        elif refs:
+            add("ok", "Variables del Caddyfile definidas (" + ", ".join(n for n, _ in refs) + ")")
+
         ok, out = validate_text(text)
         if ok:
             add("ok", "El Caddyfile es válido")
@@ -974,15 +1095,21 @@ class App:
         except ValueError:
             pass
         published = {int(k.split("/")[0]) for k, v in pb.items() if v}
-        missing = [p for p in site_ports(text) if p not in published]
+        explicit = [p for p in site_ports(text) if p not in (80, 443)]
+        missing = [p for p in explicit if p not in published]
         if missing:
             add("err", "Puertos del Caddyfile sin publicar en el contenedor: " + ", ".join(map(str, missing)),
                 "Desde fuera no se podrá acceder a esos sitios.",
-                f"Solución: añadirlos a 'ports' del servicio '{SERVICE}' en {COMPOSE} (se ofrece abajo).")
+                f"Solución: añadirlos a 'ports' del servicio '{SERVICE}' en el docker compose (se ofrece abajo).")
             need["ports"] = missing
             fixes.add("compose")
-        else:
-            add("ok", "Todos los puertos del Caddyfile están publicados (" + ", ".join(map(str, site_ports(text))) + ")")
+        elif explicit:
+            add("ok", "Puertos de los sitios publicados (" + ", ".join(map(str, explicit)) + ")")
+        std = [p for p in (80, 443) if p not in published]
+        if std:
+            add("warn", "Puertos " + " y ".join(map(str, std)) + " sin publicar",
+                "Hacen falta para que Let's Encrypt emita certificados (reto HTTP-01) y para la redirección HTTP→HTTPS.",
+                "Ignóralo si usas certificados propios, DNS-01 o solo red local.")
 
         for host, port, https in parse_upstreams(text):
             url = f"{'https' if https else 'http'}://{host}:{port}"
@@ -1044,13 +1171,18 @@ class App:
         if "start" in fixes and self.ask("¿Arrancar el contenedor de Caddy?", True):
             self.act_start()
             return
-        if "compose" in fixes and self.ask(f"¿Actualizar {COMPOSE} con los cambios necesarios?", True):
+        if "compose" in fixes and not COMPOSE:
+            self.show("Cambios necesarios en docker compose",
+                      "El contenedor no se creó con docker compose (o no encuentro su fichero; usa --compose).\n"
+                      "Aplica a mano estos cambios y recrea el contenedor:\n\n" + compose_snippet(need))
+            return
+        if "compose" in fixes and self.ask(f"¿Actualizar {os.path.basename(COMPOSE)} con los cambios necesarios?", True):
             try:
-                path = os.path.join(BASE, COMPOSE)
+                path = COMPOSE
                 with open(path, encoding="utf-8") as f:
                     old = f.read()
                 new = patch_compose(old, SERVICE, need["ports"], need["hosts"], need["nets"])
-                cand = os.path.join(BASE, f".compose.candidate.{os.getpid()}.yml")
+                cand = os.path.join(os.path.dirname(path), f".compose.candidate.{os.getpid()}.yml")
                 with open(cand, "w", encoding="utf-8") as f:
                     f.write(new)
                 try:
@@ -1060,7 +1192,7 @@ class App:
                 if rc != 0:
                     raise ValueError("El compose resultante no es válido:\n" + out)
                 os.makedirs(BACKUPS, exist_ok=True)
-                bk = os.path.join(BACKUPS, COMPOSE + "." + datetime.now().strftime("%Y%m%d-%H%M%S"))
+                bk = os.path.join(BACKUPS, os.path.basename(COMPOSE) + "." + datetime.now().strftime("%Y%m%d-%H%M%S"))
                 shutil.copy2(path, bk)
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(new)
@@ -1080,11 +1212,15 @@ class App:
 
     def act_env(self):
         if not os.path.exists(ENVFILE):
-            if not self.ask("No existe .env. ¿Crearlo desde .env.example?"):
+            example = os.path.join(BASE, ".env.example")
+            if not self.ask("No existe .env. ¿Crearlo" + (" desde .env.example?" if os.path.exists(example) else " vacío?")):
                 return
-            shutil.copy(os.path.join(BASE, ".env.example"), ENVFILE)
+            if os.path.exists(example):
+                shutil.copy(example, ENVFILE)
+            else:
+                open(ENVFILE, "a").close()
         self.external_editor(ENVFILE)
-        self.show(".env", "Si has cambiado DOMAIN u otras variables, usa [s] para recrear el contenedor con ellas.")
+        self.show(".env", "Si has cambiado variables que usa el contenedor, usa [s] para recrearlo con ellas.")
 
     # -- bucle
     def loop(self):
@@ -1121,13 +1257,26 @@ class App:
                 self.refresh_state(True)
 
 
+def parse_args():
+    env = os.environ.get
+    ap = argparse.ArgumentParser(description="TUI para gestionar un Caddy en Docker.")
+    ap.add_argument("--container", default=env("CADDY_CONTAINER"), help="nombre del contenedor de Caddy")
+    ap.add_argument("--caddyfile", default=env("CADDY_CADDYFILE"), help="ruta del Caddyfile en el host")
+    ap.add_argument("--dir", default=env("CADDY_DIR"), help="carpeta del proyecto (compose, .env, backups)")
+    ap.add_argument("--compose", default=env("CADDY_COMPOSE"), help="fichero docker compose")
+    ap.add_argument("--service", default=env("CADDY_SERVICE"), help="servicio de Caddy en el compose")
+    ap.add_argument("--image", default=env("CADDY_IMAGE"), help="imagen para validar/formatear")
+    ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
+    return ap.parse_args()
+
+
 def main():
-    if not os.path.exists(CADDYFILE):
-        sys.exit(f"No se encuentra {CADDYFILE}")
+    args = parse_args()
     if not shutil.which("docker"):
         sys.exit("Docker no está instalado o no está en el PATH.")
     if not sys.stdout.isatty():
         sys.exit("Este programa necesita un terminal interactivo.")
+    configure(args)
     curses.wrapper(lambda scr: App(scr).loop())
 
 
