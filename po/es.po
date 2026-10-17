@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 21:56+0200\n"
+"POT-Creation-Date: 2026-10-17 22:04+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -101,6 +101,9 @@ msgstr "Tiempo agotado ejecutando: {cmd}"
 msgid "No Caddy container found. Specify one with --container NAME."
 msgstr ""
 "No encuentro ningún contenedor de Caddy. Indícalo con --container NOMBRE."
+
+msgid "There are several Caddy containers; choose one with --container NAME."
+msgstr "Hay varios contenedores de Caddy; elige uno con --container NOMBRE."
 
 msgid "There are several Caddy containers:"
 msgstr "Hay varios contenedores de Caddy:"
@@ -207,6 +210,175 @@ msgstr ""
 
 msgid "No certificates stored yet"
 msgstr "Todavía no hay certificados guardados"
+
+#, python-brace-format
+msgid "Result: {problems} problem(s), {warns} warning(s)."
+msgstr "Resultado: {problems} problema(s), {warns} aviso(s)."
+
+msgid "All good."
+msgstr "Todo correcto."
+
+msgid "Docker is not responding"
+msgstr "Docker no responde"
+
+msgid ""
+"Fix: start Docker (systemctl start docker) and check that your user can use "
+"it."
+msgstr ""
+"Solución: arranca Docker (systemctl start docker) y comprueba que tu usuario "
+"puede usarlo."
+
+#, python-brace-format
+msgid "Docker available (v{version})"
+msgstr "Docker disponible (v{version})"
+
+#, python-brace-format
+msgid ""
+"Variable {name} in the Caddyfile is not defined (neither in the container "
+"nor in .env)"
+msgstr ""
+"La variable {name} del Caddyfile no está definida (ni en el contenedor ni "
+"en .env)"
+
+#, python-brace-format
+msgid "Fix: define {name}=... in .env with [n] and apply it with [s]."
+msgstr "Solución: define {name}=... en .env con [n] y aplícalo con [s]."
+
+#, python-brace-format
+msgid "Caddyfile variables defined ({names})"
+msgstr "Variables del Caddyfile definidas ({names})"
+
+msgid "The Caddyfile is valid"
+msgstr "El Caddyfile es válido"
+
+msgid ""
+"Fix: edit it with [e] (the TUI will not let you save something invalid)."
+msgstr "Solución: edítalo con [e] (la TUI no te dejará guardar algo inválido)."
+
+msgid ""
+"Fix: 'import name' needs a snippet '(name) { ... }' defined at the top of "
+"the Caddyfile, or a file with that name next to it."
+msgstr ""
+"Solución: 'import nombre' necesita un snippet '(nombre) { ... }' definido al "
+"principio del Caddyfile, o un fichero con ese nombre junto a él."
+
+msgid "The Caddyfile is NOT valid"
+msgstr "El Caddyfile NO es válido"
+
+#, python-brace-format
+msgid "Container {name} is not running (state: {state})"
+msgstr "El contenedor {name} no está en marcha (estado: {state})"
+
+msgid "Fix: start it with [s]."
+msgstr "Solución: arráncalo con [s]."
+
+#, python-brace-format
+msgid "Container {name} is running"
+msgstr "Contenedor {name} en marcha"
+
+msgid "The container uses a DIFFERENT Caddyfile than the one on disk"
+msgstr "El contenedor usa un Caddyfile DISTINTO al del disco"
+
+msgid ""
+"Typical cause: an editor replaced the file and Docker still mounts the old "
+"one."
+msgstr ""
+"Causa típica: un editor sustituyó el fichero y Docker sigue montando el "
+"antiguo."
+
+msgid "Fix: recreate the container. Until then your changes are not applied!"
+msgstr ""
+"Solución: recrear el contenedor. ¡Hasta entonces los cambios no se aplican!"
+
+msgid "The container sees the same Caddyfile as the disk"
+msgstr "El contenedor ve el mismo Caddyfile que el disco"
+
+#, python-brace-format
+msgid "Caddyfile ports not published by the container: {ports}"
+msgstr "Puertos del Caddyfile sin publicar en el contenedor: {ports}"
+
+msgid "Those sites will not be reachable from outside."
+msgstr "Desde fuera no se podrá acceder a esos sitios."
+
+#, python-brace-format
+msgid "Fix: add them to 'ports' of service '{service}' in the docker compose."
+msgstr ""
+"Solución: añadirlos a 'ports' del servicio '{service}' en el docker compose."
+
+#, python-brace-format
+msgid "Site ports published ({ports})"
+msgstr "Puertos de los sitios publicados ({ports})"
+
+#, python-brace-format
+msgid "Ports {ports} not published"
+msgstr "Puertos {ports} sin publicar"
+
+msgid ""
+"They are needed for Let's Encrypt to issue certificates (HTTP-01 challenge) "
+"and for the HTTP→HTTPS redirect."
+msgstr ""
+"Hacen falta para que Let's Encrypt emita certificados (reto HTTP-01) y para "
+"la redirección HTTP→HTTPS."
+
+msgid ""
+"Ignore this if you use your own certificates, DNS-01 or only a local network."
+msgstr "Ignóralo si usas certificados propios, DNS-01 o solo red local."
+
+#, python-brace-format
+msgid "Upstream {host}:{port} responds"
+msgstr "El destino {host}:{port} responde"
+
+msgid "host.docker.internal is not configured in the container"
+msgstr "host.docker.internal no está configurado en el contenedor"
+
+msgid "Fix: add extra_hosts 'host.docker.internal:host-gateway'."
+msgstr "Solución: añadir extra_hosts 'host.docker.internal:host-gateway'."
+
+#, python-brace-format
+msgid "Fix: connect Caddy to the network of '{host}'."
+msgstr "Solución: conectar Caddy a la red de '{host}'."
+
+#, python-brace-format
+msgid "'{host}' is on Docker network: {nets}"
+msgstr "'{host}' está en la red Docker: {nets}"
+
+#, python-brace-format
+msgid "Fix: add that network to '{service}' as external in the docker compose."
+msgstr ""
+"Solución: añadir esa red a '{service}' como externa en el docker compose."
+
+msgid "I found no running container with that name: is it stopped?"
+msgstr ""
+"No he encontrado ningún contenedor en marcha con ese nombre: ¿está parado?"
+
+#, python-brace-format
+msgid "Caddy cannot resolve upstream '{host}' (different network)"
+msgstr "Caddy no resuelve el destino '{host}' (red distinta)"
+
+#, python-brace-format
+msgid "{host}:{port} refuses the connection"
+msgstr "{host}:{port} rechaza la conexión"
+
+msgid "The service is not listening: is it stopped, or on another port?"
+msgstr "El servicio no está escuchando: ¿está parado o es otro puerto?"
+
+#, python-brace-format
+msgid "{host}:{port} does not respond (timeout)"
+msgstr "{host}:{port} no responde (timeout)"
+
+msgid "Check that the service is running and the firewall."
+msgstr "Revisa que el servicio esté arrancado y el cortafuegos."
+
+#, python-brace-format
+msgid "{count} errors in the logs of the last 10 min"
+msgstr "{count} errores en los logs de los últimos 10 min"
+
+msgid "No errors in the logs of the last 10 min"
+msgstr "Sin errores en los logs de los últimos 10 min"
+
+#, python-brace-format
+msgid "HTTPS certificates valid ({n})"
+msgstr "Certificados HTTPS válidos ({n})"
 
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
@@ -544,189 +716,8 @@ msgstr "[p] pausa · [w] ventana · [c] limpiar · [q] volver"
 msgid "Log stream closed (container stopped?)"
 msgstr "Se cerró el flujo de logs (¿contenedor parado?)"
 
-msgid "Docker is not responding"
-msgstr "Docker no responde"
-
-msgid ""
-"Fix: start Docker (systemctl start docker) and check that your user can use "
-"it."
-msgstr ""
-"Solución: arranca Docker (systemctl start docker) y comprueba que tu usuario "
-"puede usarlo."
-
-#, python-brace-format
-msgid "Docker available (v{version})"
-msgstr "Docker disponible (v{version})"
-
-#, python-brace-format
-msgid ""
-"Variable {name} in the Caddyfile is not defined (neither in the container "
-"nor in .env)"
-msgstr ""
-"La variable {name} del Caddyfile no está definida (ni en el contenedor ni "
-"en .env)"
-
-#, python-brace-format
-msgid "Fix: define {name}=... in .env with [n] and apply it with [s]."
-msgstr "Solución: define {name}=... en .env con [n] y aplícalo con [s]."
-
-#, python-brace-format
-msgid "Caddyfile variables defined ({names})"
-msgstr "Variables del Caddyfile definidas ({names})"
-
-msgid "The Caddyfile is valid"
-msgstr "El Caddyfile es válido"
-
-msgid ""
-"Fix: edit it with [e] (the TUI will not let you save something invalid)."
-msgstr "Solución: edítalo con [e] (la TUI no te dejará guardar algo inválido)."
-
-msgid ""
-"Fix: 'import name' needs a snippet '(name) { ... }' defined at the top of "
-"the Caddyfile, or a file with that name next to it."
-msgstr ""
-"Solución: 'import nombre' necesita un snippet '(nombre) { ... }' definido al "
-"principio del Caddyfile, o un fichero con ese nombre junto a él."
-
-msgid "The Caddyfile is NOT valid"
-msgstr "El Caddyfile NO es válido"
-
-#, python-brace-format
-msgid "Container {name} is not running (state: {state})"
-msgstr "El contenedor {name} no está en marcha (estado: {state})"
-
-msgid "Fix: start it (offered below) or with [s]."
-msgstr "Solución: arrancarlo (se ofrece abajo) o con [s]."
-
-#, python-brace-format
-msgid "Container {name} is running"
-msgstr "Contenedor {name} en marcha"
-
-msgid "The container uses a DIFFERENT Caddyfile than the one on disk"
-msgstr "El contenedor usa un Caddyfile DISTINTO al del disco"
-
-msgid ""
-"Typical cause: an editor replaced the file and Docker still mounts the old "
-"one."
-msgstr ""
-"Causa típica: un editor sustituyó el fichero y Docker sigue montando el "
-"antiguo."
-
-msgid ""
-"Fix: recreate the container (offered below). Until then your changes are not "
-"applied!"
-msgstr ""
-"Solución: recrear el contenedor (se ofrece abajo). ¡Hasta entonces los "
-"cambios no se aplican!"
-
-msgid "The container sees the same Caddyfile as the disk"
-msgstr "El contenedor ve el mismo Caddyfile que el disco"
-
-#, python-brace-format
-msgid "Caddyfile ports not published by the container: {ports}"
-msgstr "Puertos del Caddyfile sin publicar en el contenedor: {ports}"
-
-msgid "Those sites will not be reachable from outside."
-msgstr "Desde fuera no se podrá acceder a esos sitios."
-
-#, python-brace-format
-msgid ""
-"Fix: add them to 'ports' of service '{service}' in the docker compose "
-"(offered below)."
-msgstr ""
-"Solución: añadirlos a 'ports' del servicio '{service}' en el docker compose "
-"(se ofrece abajo)."
-
-#, python-brace-format
-msgid "Site ports published ({ports})"
-msgstr "Puertos de los sitios publicados ({ports})"
-
-#, python-brace-format
-msgid "Ports {ports} not published"
-msgstr "Puertos {ports} sin publicar"
-
-msgid ""
-"They are needed for Let's Encrypt to issue certificates (HTTP-01 challenge) "
-"and for the HTTP→HTTPS redirect."
-msgstr ""
-"Hacen falta para que Let's Encrypt emita certificados (reto HTTP-01) y para "
-"la redirección HTTP→HTTPS."
-
-msgid ""
-"Ignore this if you use your own certificates, DNS-01 or only a local network."
-msgstr "Ignóralo si usas certificados propios, DNS-01 o solo red local."
-
-#, python-brace-format
-msgid "Upstream {host}:{port} responds"
-msgstr "El destino {host}:{port} responde"
-
-msgid "host.docker.internal is not configured in the container"
-msgstr "host.docker.internal no está configurado en el contenedor"
-
-msgid ""
-"Fix: add extra_hosts 'host.docker.internal:host-gateway' (offered below)."
-msgstr ""
-"Solución: añadir extra_hosts 'host.docker.internal:host-gateway' (se ofrece "
-"abajo)."
-
-#, python-brace-format
-msgid "Fix: connect Caddy to the network of '{host}'."
-msgstr "Solución: conectar Caddy a la red de '{host}'."
-
-#, python-brace-format
-msgid "'{host}' is on Docker network: {nets}"
-msgstr "'{host}' está en la red Docker: {nets}"
-
-#, python-brace-format
-msgid ""
-"Fix: add that network to '{service}' as external in the docker compose "
-"(offered below)."
-msgstr ""
-"Solución: añadir esa red a '{service}' como externa en el docker compose (se "
-"ofrece abajo)."
-
-msgid "I found no running container with that name: is it stopped?"
-msgstr ""
-"No he encontrado ningún contenedor en marcha con ese nombre: ¿está parado?"
-
-#, python-brace-format
-msgid "Caddy cannot resolve upstream '{host}' (different network)"
-msgstr "Caddy no resuelve el destino '{host}' (red distinta)"
-
-#, python-brace-format
-msgid "{host}:{port} refuses the connection"
-msgstr "{host}:{port} rechaza la conexión"
-
-msgid "The service is not listening: is it stopped, or on another port?"
-msgstr "El servicio no está escuchando: ¿está parado o es otro puerto?"
-
-#, python-brace-format
-msgid "{host}:{port} does not respond (timeout)"
-msgstr "{host}:{port} no responde (timeout)"
-
-msgid "Check that the service is running and the firewall."
-msgstr "Revisa que el servicio esté arrancado y el cortafuegos."
-
-#, python-brace-format
-msgid "{count} errors in the logs of the last 10 min"
-msgstr "{count} errores en los logs de los últimos 10 min"
-
-msgid "No errors in the logs of the last 10 min"
-msgstr "Sin errores en los logs de los últimos 10 min"
-
-#, python-brace-format
-msgid "HTTPS certificates valid ({n})"
-msgstr "Certificados HTTPS válidos ({n})"
-
 msgid "Running checks (may take a few seconds)..."
 msgstr "Ejecutando comprobaciones (puede tardar unos segundos)..."
-
-#, python-brace-format
-msgid "Result: {problems} problem(s), {warns} warning(s)."
-msgstr "Resultado: {problems} problema(s), {warns} aviso(s)."
-
-msgid "All good."
-msgstr "Todo correcto."
 
 msgid "Diagnostics"
 msgstr "Diagnóstico"
@@ -836,6 +827,19 @@ msgid ""
 msgstr ""
 "idioma de la interfaz: auto o uno de {langs} (por defecto: el guardado, si "
 "no el del sistema)"
+
+msgid ""
+"run the diagnostics once, without the interface, and exit (0 ok, 1 warnings, "
+"2 problems, 3 cannot run)"
+msgstr ""
+"ejecuta el diagnóstico una vez, sin interfaz, y termina (0 ok, 1 avisos, 2 "
+"problemas, 3 no se pudo ejecutar)"
+
+msgid "with --check: print the result as JSON"
+msgstr "con --check: imprime el resultado en JSON"
+
+msgid "with --check: print only warnings and problems (nothing if all is well)"
+msgstr "con --check: imprime solo avisos y problemas (nada si todo va bien)"
 
 msgid "Docker is not installed or not in PATH."
 msgstr "Docker no está instalado o no está en el PATH."

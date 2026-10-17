@@ -1,4 +1,7 @@
+import argparse
 import ast
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -251,6 +254,47 @@ class CertReport(unittest.TestCase):
     def test_sin_certificados(self):
         rows, __ = self.report([])
         self.assertEqual(rows[0][0], "ok")
+
+
+class HeadlessCheck(unittest.TestCase):
+    ITEMS_OK = [("ok", "all fine", [])]
+    ITEMS_WARN = [("ok", "fine", []), ("warn", "careful", ["detail"])]
+    ITEMS_ERR = [("warn", "careful", []), ("err", "broken", ["why", "how"])]
+
+    def run_check(self, items, **opts):
+        args = argparse.Namespace(json=opts.get("json", False), quiet=opts.get("quiet", False))
+        out = io.StringIO()
+        with mock.patch.object(c, "diagnose", return_value=(items, set(), {})), contextlib.redirect_stdout(out):
+            code = c.run_check(args)
+        return code, out.getvalue()
+
+    def test_codigos_de_salida(self):
+        self.assertEqual(self.run_check(self.ITEMS_OK)[0], 0)
+        self.assertEqual(self.run_check(self.ITEMS_WARN)[0], 1)
+        self.assertEqual(self.run_check(self.ITEMS_ERR)[0], 2)
+
+    def test_quiet_no_imprime_nada_si_todo_va_bien(self):
+        self.assertEqual(self.run_check(self.ITEMS_OK, quiet=True), (0, ""))
+
+    def test_quiet_solo_muestra_problemas(self):
+        __, out = self.run_check(self.ITEMS_WARN, quiet=True)
+        self.assertIn("careful", out)
+        self.assertNotIn("fine", out)
+
+    def test_texto_completo(self):
+        __, out = self.run_check(self.ITEMS_ERR)
+        self.assertIn("✘ broken\n    why\n    how", out)
+        self.assertIn("1 problem(s), 1 warning(s)", out)
+
+    def test_json(self):
+        code, out = self.run_check(self.ITEMS_ERR, json=True)
+        data = json.loads(out)
+        self.assertEqual((code, data["status"], data["problems"], data["warnings"]), (2, "critical", 1, 1))
+        self.assertEqual(data["checks"][1], {"level": "err", "title": "broken", "details": ["why", "how"]})
+        self.assertEqual(json.loads(self.run_check(self.ITEMS_OK, json=True)[1])["status"], "ok")
+
+    def test_format_items(self):
+        self.assertEqual(c.format_items(self.ITEMS_WARN), ["✔ fine", "⚠ careful", "    detail"])
 
 
 class Translations(unittest.TestCase):

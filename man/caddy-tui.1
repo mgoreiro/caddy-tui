@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.2.0" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.3.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -38,8 +38,21 @@ Image used to validate and format. Environment: CADDY_IMAGE.
 Interface language: \fBauto\fR or one of the installed languages (\fBen\fR,
 \fBes\fR). Environment: CADDY_TUI_LANG.
 .TP
+.B \-\-check
+Run the diagnostics once, without the interface, and exit. Read-only.
+.TP
+.B \-\-json
+With \fB\-\-check\fR: print the result as JSON.
+.TP
+.BR \-q ", " \-\-quiet
+With \fB\-\-check\fR: print only warnings and problems (nothing if all is well).
+.TP
 .B \-\-version
 Show the version and exit.
+.SH EXIT STATUS
+With \fB\-\-check\fR: \fB0\fR everything is fine, \fB1\fR warnings only, \fB2\fR at least one
+problem, \fB3\fR the check could not run (Docker, container or Caddyfile not found).
+Without it, the usual 0 on normal exit.
 .SH LANGUAGE
 The language is chosen at startup in this order: \fB\-\-lang\fR,
 CADDY_TUI_LANG, the preference saved with the \fBL\fR key

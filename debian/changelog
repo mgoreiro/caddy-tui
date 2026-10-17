@@ -1,3 +1,14 @@
+caddy-tui (1.3.0) unstable; urgency=medium
+
+  * New headless mode: caddy-tui --check [--quiet] [--json] runs the
+    diagnostics once and exits with 0 (ok), 1 (warnings), 2 (problems) or 3
+    (could not run), for cron, systemd timers and monitoring.
+  * Examples installed: systemd service and timer, Telegram alert script.
+  * Diagnostic hints no longer say "offered below" (they are also used
+    headless); a fresh Caddy without certificates no longer triggers a warning.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Sat, 17 Oct 2026 23:00:00 +0200
+
 caddy-tui (1.2.0) unstable; urgency=medium
 
   * New [h] screen: HTTPS certificates. Lists the certificates Caddy has

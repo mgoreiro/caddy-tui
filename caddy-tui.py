@@ -21,6 +21,9 @@ compose project and service); any value can be forced with options or variables:
     --service   / CADDY_SERVICE     Caddy service in the compose file
     --image     / CADDY_IMAGE       image used to validate/format
     --lang      / CADDY_TUI_LANG    interface language (auto, en, es, ...)
+
+Headless mode for cron / systemd / monitoring (read-only):
+    caddy-tui --check [--quiet] [--json]   exit 0 ok, 1 warnings, 2 problems, 3 cannot run
     EDITOR                          editor to use (default nano / vi)
 """
 import argparse
@@ -40,7 +43,7 @@ import time
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -211,6 +214,8 @@ def configure(args):
             sys.exit(_("No Caddy container found. Specify one with --container NAME."))
         if len(cands) == 1:
             name = cands[0][0]
+        elif not sys.stdin.isatty():
+            sys.exit(_("There are several Caddy containers; choose one with --container NAME."))
         else:
             print(_("There are several Caddy containers:"))
             for i, (n, img, st) in enumerate(cands, 1):
@@ -697,7 +702,7 @@ def parse_pem_certificates(text):
 def read_certificates():
     """Leaf certificates stored by Caddy in the container, or None if unreadable."""
     script = ('d="${XDG_DATA_HOME:-$HOME/.local/share}/caddy/certificates"; '
-              'find "$d" -name "*.crt" -exec sh -c \'echo "###FILE $1"; cat "$1"\' _ {} \\; 2>/dev/null')
+              'find "$d" -name "*.crt" -exec sh -c \'echo "###FILE $1"; cat "$1"\' _ {} \\; 2>/dev/null; true')
     rc, out = run(["docker", "exec", CONTAINER, "sh", "-c", script], timeout=30)
     if rc != 0:
         return None
@@ -792,6 +797,176 @@ def cert_report(text, now=None):
     if not certs and not rows:
         rows.append(("ok", _("No certificates stored yet"), []))
     return rows, len(certs)
+
+
+MARK = {"ok": "✔", "warn": "⚠", "err": "✘"}
+
+
+def format_items(items):
+    """[(level, title, [details])] -> text lines for the output pane / terminal."""
+    out = []
+    for level, title, details in items:
+        out.append(f"{MARK[level]} {title}")
+        out.extend("    " + d for d in details)
+    return out
+
+
+def summary_line(items):
+    problems = sum(1 for i in items if i[0] == "err")
+    warns = sum(1 for i in items if i[0] == "warn")
+    if problems or warns:
+        return _("Result: {problems} problem(s), {warns} warning(s).").format(problems=problems, warns=warns)
+    return "✔ " + _("All good.")
+
+
+def diagnose():
+    """Run the checks. Returns (items, fixes, needs); items = [(level, title, [details])]."""
+    items, fixes = [], set()
+    need = {"ports": [], "hosts": [], "nets": []}
+
+    def add(level, title, *detail):
+        items.append((level, title, [d for d in detail if d]))
+
+    rc, out = run(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=20)
+    if rc != 0:
+        add("err", _("Docker is not responding"), out.splitlines()[-1] if out else "",
+            _("Fix: start Docker (systemctl start docker) and check that your user can use it."))
+        return items, fixes, need
+    add("ok", _("Docker available (v{version})").format(version=out.strip()))
+
+    with open(CADDYFILE, encoding="utf-8") as f:
+        text = f.read()
+    cenv = container_env()
+    refs = referenced_vars(text)
+    undefined = [n for n, d in refs if not d and not (cenv.get(n) or read_env(n))]
+    if undefined:
+        for n in undefined:
+            add("err", _("Variable {name} in the Caddyfile is not defined (neither in the container nor in .env)").format(name=n),
+                _("Fix: define {name}=... in .env with [n] and apply it with [s].").format(name=n))
+    elif refs:
+        add("ok", _("Caddyfile variables defined ({names})").format(names=", ".join(n for n, __ in refs)))
+
+    ok, out = validate_text(text)
+    if ok:
+        add("ok", _("The Caddyfile is valid"))
+    else:
+        tail = out.splitlines()[-1] if out else ""
+        hint = _("Fix: edit it with [e] (the TUI will not let you save something invalid).")
+        if "File to import not found" in out:
+            hint = _("Fix: 'import name' needs a snippet '(name) { ... }' defined at the top of the "
+                     "Caddyfile, or a file with that name next to it.")
+        add("err", _("The Caddyfile is NOT valid"), tail, hint)
+
+    state, __ = container_state()
+    if state != "running":
+        add("err", _("Container {name} is not running (state: {state})").format(name=CONTAINER, state=state_label(state)),
+            _("Fix: start it with [s]."))
+        fixes.add("start")
+        return items, fixes, need
+    add("ok", _("Container {name} is running").format(name=CONTAINER))
+
+    rc, live = run(["docker", "exec", CONTAINER, "cat", CONF_IN_CONTAINER], timeout=15)
+    if rc == 0 and live.strip() != text.strip():
+        add("err", _("The container uses a DIFFERENT Caddyfile than the one on disk"),
+            _("Typical cause: an editor replaced the file and Docker still mounts the old one."),
+            _("Fix: recreate the container. Until then your changes are not applied!"))
+        fixes.add("recreate")
+    elif rc == 0:
+        add("ok", _("The container sees the same Caddyfile as the disk"))
+
+    rc, js = run(["docker", "inspect", "--format", "{{json .HostConfig.PortBindings}}|{{json .HostConfig.ExtraHosts}}",
+                  CONTAINER], timeout=15)
+    pb, eh = {}, []
+    try:
+        a, __, b = js.partition("|")
+        pb, eh = json.loads(a) or {}, json.loads(b) or []
+    except ValueError:
+        pass
+    published = {int(k.split("/")[0]) for k, v in pb.items() if v}
+    explicit = [p for p in site_ports(text) if p not in (80, 443)]
+    missing = [p for p in explicit if p not in published]
+    if missing:
+        add("err", _("Caddyfile ports not published by the container: {ports}").format(ports=", ".join(map(str, missing))),
+            _("Those sites will not be reachable from outside."),
+            _("Fix: add them to 'ports' of service '{service}' in the docker compose.").format(service=SERVICE))
+        need["ports"] = missing
+        fixes.add("compose")
+    elif explicit:
+        add("ok", _("Site ports published ({ports})").format(ports=", ".join(map(str, explicit))))
+    std = [p for p in (80, 443) if p not in published]
+    if std:
+        add("warn", _("Ports {ports} not published").format(ports=" / ".join(map(str, std))),
+            _("They are needed for Let's Encrypt to issue certificates (HTTP-01 challenge) and for the HTTP→HTTPS redirect."),
+            _("Ignore this if you use your own certificates, DNS-01 or only a local network."))
+
+    for host, port, https in parse_upstreams(text):
+        url = f"{'https' if https else 'http'}://{host}:{port}"
+        cmd = ["docker", "exec", CONTAINER, "wget", "-S", "--spider", "-q", "-T", "4"]
+        rc, out = run(cmd + (["--no-check-certificate"] if https else []) + [url], timeout=20)
+        low = out.lower()
+        if "http/" in low:
+            add("ok", _("Upstream {host}:{port} responds").format(host=host, port=port))
+        elif host == "host.docker.internal" and not any("host.docker.internal" in h for h in eh):
+            add("err", _("host.docker.internal is not configured in the container"),
+                _("Fix: add extra_hosts 'host.docker.internal:host-gateway'."))
+            need["hosts"] = ["host.docker.internal:host-gateway"]
+            fixes.add("compose")
+        elif "bad address" in low or "not found" in low or "resolve" in low:
+            nets = [n for n in find_networks(host)]
+            msg = [_("Fix: connect Caddy to the network of '{host}'.").format(host=host)]
+            if nets:
+                msg = [_("'{host}' is on Docker network: {nets}").format(host=host, nets=", ".join(nets)),
+                       _("Fix: add that network to '{service}' as external in the docker compose.").format(service=SERVICE)]
+                need["nets"] = sorted(set(need["nets"]) | set(nets))
+                fixes.add("compose")
+            else:
+                msg.append(_("I found no running container with that name: is it stopped?"))
+            add("err", _("Caddy cannot resolve upstream '{host}' (different network)").format(host=host), *msg)
+        elif "refused" in low:
+            add("warn", _("{host}:{port} refuses the connection").format(host=host, port=port),
+                _("The service is not listening: is it stopped, or on another port?"))
+        else:
+            add("warn", _("{host}:{port} does not respond (timeout)").format(host=host, port=port),
+                _("Check that the service is running and the firewall."))
+
+    rc, logs = run(["docker", "logs", "--since", "10m", CONTAINER], timeout=20)
+    errs = Counter()
+    for line in logs.splitlines():
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        if j.get("level") == "error" and not str(j.get("logger", "")).startswith("http.log.access"):
+            errs[str(j.get("msg", ""))[:110]] += 1
+    if errs:
+        add("warn", _("{count} errors in the logs of the last 10 min").format(count=sum(errs.values())),
+            *[f"{n}× {m}" for m, n in errs.most_common(3)])
+    else:
+        add("ok", _("No errors in the logs of the last 10 min"))
+
+    rows, n_certs = cert_report(text)
+    problems = [r for r in rows if r[0] != "ok"]
+    for level, title, details in problems:
+        add(level, title, *details)
+    if n_certs and not problems:
+        add("ok", _("HTTPS certificates valid ({n})").format(n=n_certs))
+    return items, fixes, need
+
+
+def run_check(args):
+    """Headless diagnostics (for cron / systemd / monitoring). Exit code: 0 ok, 1 warnings, 2 problems."""
+    items, __, __ = diagnose()
+    errs = sum(1 for i in items if i[0] == "err")
+    warns = sum(1 for i in items if i[0] == "warn")
+    code = 2 if errs else 1 if warns else 0
+    if args.json:
+        print(json.dumps({"status": ("ok", "warning", "critical")[code], "problems": errs, "warnings": warns,
+                          "checks": [{"level": l, "title": t, "details": d} for l, t, d in items]},
+                         ensure_ascii=False, indent=2))
+    elif not (args.quiet and code == 0):
+        shown = [i for i in items if not args.quiet or i[0] != "ok"]
+        print("\n".join(format_items(shown) + ["", summary_line(items)]))
+    return code
 
 
 # --------------------------------------------------------------------- UI ----
@@ -1304,148 +1479,10 @@ class App:
         scr.refresh()
 
     # -- diagnostics and repair
-    def diagnose(self):
-        """Run the checks. Returns (lines, fixes, needs)."""
-        L, fixes = [], set()
-        need = {"ports": [], "hosts": [], "nets": []}
-
-        def add(level, title, *detail):
-            L.append({"ok": "✔", "warn": "⚠", "err": "✘"}[level] + " " + title)
-            L.extend("    " + d for d in detail if d)
-
-        rc, out = run(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=20)
-        if rc != 0:
-            add("err", _("Docker is not responding"), out.splitlines()[-1] if out else "",
-                _("Fix: start Docker (systemctl start docker) and check that your user can use it."))
-            return L, fixes, need
-        add("ok", _("Docker available (v{version})").format(version=out.strip()))
-
-        with open(CADDYFILE, encoding="utf-8") as f:
-            text = f.read()
-        cenv = container_env()
-        refs = referenced_vars(text)
-        undefined = [n for n, d in refs if not d and not (cenv.get(n) or read_env(n))]
-        if undefined:
-            for n in undefined:
-                add("err", _("Variable {name} in the Caddyfile is not defined (neither in the container nor in .env)").format(name=n),
-                    _("Fix: define {name}=... in .env with [n] and apply it with [s].").format(name=n))
-        elif refs:
-            add("ok", _("Caddyfile variables defined ({names})").format(names=", ".join(n for n, __ in refs)))
-
-        ok, out = validate_text(text)
-        if ok:
-            add("ok", _("The Caddyfile is valid"))
-        else:
-            tail = out.splitlines()[-1] if out else ""
-            hint = _("Fix: edit it with [e] (the TUI will not let you save something invalid).")
-            if "File to import not found" in out:
-                hint = _("Fix: 'import name' needs a snippet '(name) { ... }' defined at the top of the "
-                         "Caddyfile, or a file with that name next to it.")
-            add("err", _("The Caddyfile is NOT valid"), tail, hint)
-
-        state, __ = container_state()
-        if state != "running":
-            add("err", _("Container {name} is not running (state: {state})").format(name=CONTAINER, state=state_label(state)),
-                _("Fix: start it (offered below) or with [s]."))
-            fixes.add("start")
-            return L, fixes, need
-        add("ok", _("Container {name} is running").format(name=CONTAINER))
-
-        rc, live = run(["docker", "exec", CONTAINER, "cat", CONF_IN_CONTAINER], timeout=15)
-        if rc == 0 and live.strip() != text.strip():
-            add("err", _("The container uses a DIFFERENT Caddyfile than the one on disk"),
-                _("Typical cause: an editor replaced the file and Docker still mounts the old one."),
-                _("Fix: recreate the container (offered below). Until then your changes are not applied!"))
-            fixes.add("recreate")
-        elif rc == 0:
-            add("ok", _("The container sees the same Caddyfile as the disk"))
-
-        rc, js = run(["docker", "inspect", "--format", "{{json .HostConfig.PortBindings}}|{{json .HostConfig.ExtraHosts}}",
-                      CONTAINER], timeout=15)
-        pb, eh = {}, []
-        try:
-            a, __, b = js.partition("|")
-            pb, eh = json.loads(a) or {}, json.loads(b) or []
-        except ValueError:
-            pass
-        published = {int(k.split("/")[0]) for k, v in pb.items() if v}
-        explicit = [p for p in site_ports(text) if p not in (80, 443)]
-        missing = [p for p in explicit if p not in published]
-        if missing:
-            add("err", _("Caddyfile ports not published by the container: {ports}").format(ports=", ".join(map(str, missing))),
-                _("Those sites will not be reachable from outside."),
-                _("Fix: add them to 'ports' of service '{service}' in the docker compose (offered below).").format(service=SERVICE))
-            need["ports"] = missing
-            fixes.add("compose")
-        elif explicit:
-            add("ok", _("Site ports published ({ports})").format(ports=", ".join(map(str, explicit))))
-        std = [p for p in (80, 443) if p not in published]
-        if std:
-            add("warn", _("Ports {ports} not published").format(ports=" / ".join(map(str, std))),
-                _("They are needed for Let's Encrypt to issue certificates (HTTP-01 challenge) and for the HTTP→HTTPS redirect."),
-                _("Ignore this if you use your own certificates, DNS-01 or only a local network."))
-
-        for host, port, https in parse_upstreams(text):
-            url = f"{'https' if https else 'http'}://{host}:{port}"
-            cmd = ["docker", "exec", CONTAINER, "wget", "-S", "--spider", "-q", "-T", "4"]
-            rc, out = run(cmd + (["--no-check-certificate"] if https else []) + [url], timeout=20)
-            low = out.lower()
-            if "http/" in low:
-                add("ok", _("Upstream {host}:{port} responds").format(host=host, port=port))
-            elif host == "host.docker.internal" and not any("host.docker.internal" in h for h in eh):
-                add("err", _("host.docker.internal is not configured in the container"),
-                    _("Fix: add extra_hosts 'host.docker.internal:host-gateway' (offered below)."))
-                need["hosts"] = ["host.docker.internal:host-gateway"]
-                fixes.add("compose")
-            elif "bad address" in low or "not found" in low or "resolve" in low:
-                nets = [n for n in find_networks(host)]
-                msg = [_("Fix: connect Caddy to the network of '{host}'.").format(host=host)]
-                if nets:
-                    msg = [_("'{host}' is on Docker network: {nets}").format(host=host, nets=", ".join(nets)),
-                           _("Fix: add that network to '{service}' as external in the docker compose (offered below).").format(service=SERVICE)]
-                    need["nets"] = sorted(set(need["nets"]) | set(nets))
-                    fixes.add("compose")
-                else:
-                    msg.append(_("I found no running container with that name: is it stopped?"))
-                add("err", _("Caddy cannot resolve upstream '{host}' (different network)").format(host=host), *msg)
-            elif "refused" in low:
-                add("warn", _("{host}:{port} refuses the connection").format(host=host, port=port),
-                    _("The service is not listening: is it stopped, or on another port?"))
-            else:
-                add("warn", _("{host}:{port} does not respond (timeout)").format(host=host, port=port),
-                    _("Check that the service is running and the firewall."))
-
-        rc, logs = run(["docker", "logs", "--since", "10m", CONTAINER], timeout=20)
-        errs = Counter()
-        for line in logs.splitlines():
-            try:
-                j = json.loads(line)
-            except ValueError:
-                continue
-            if j.get("level") == "error" and not str(j.get("logger", "")).startswith("http.log.access"):
-                errs[str(j.get("msg", ""))[:110]] += 1
-        if errs:
-            add("warn", _("{count} errors in the logs of the last 10 min").format(count=sum(errs.values())),
-                *[f"{n}× {m}" for m, n in errs.most_common(3)])
-        else:
-            add("ok", _("No errors in the logs of the last 10 min"))
-
-        rows, n_certs = cert_report(text)
-        problems = [r for r in rows if r[0] != "ok"]
-        for level, title, details in problems:
-            add(level, title, *details)
-        if n_certs and not problems:
-            add("ok", _("HTTPS certificates valid ({n})").format(n=n_certs))
-        return L, fixes, need
-
     def act_diagnose(self):
         self.busy(_("Running checks (may take a few seconds)..."))
-        L, fixes, need = self.diagnose()
-        problems = sum(1 for l in L if l.startswith("✘"))
-        warns = sum(1 for l in L if l.startswith("⚠"))
-        L.append("")
-        L.append(_("Result: {problems} problem(s), {warns} warning(s).").format(problems=problems, warns=warns)
-                 if problems or warns else "✔ " + _("All good."))
+        items, fixes, need = diagnose()
+        L = format_items(items) + ["", summary_line(items)]
         self.show(_("Diagnostics"), "\n".join(L))
         if not fixes:
             return
@@ -1514,15 +1551,7 @@ class App:
         self.busy(_("Reading certificates..."))
         with open(CADDYFILE, encoding="utf-8") as f:
             rows, __ = cert_report(f.read())
-        mark = {"ok": "✔", "warn": "⚠", "err": "✘"}
-        L = []
-        for level, title, details in rows:
-            L.append(f"{mark[level]} {title}")
-            L.extend("    " + d for d in details)
-        problems = sum(1 for r in rows if r[0] == "err")
-        warns = sum(1 for r in rows if r[0] == "warn")
-        L += ["", _("Result: {problems} problem(s), {warns} warning(s).").format(problems=problems, warns=warns)
-              if problems or warns else "✔ " + _("All good.")]
+        L = format_items(rows) + ["", summary_line(rows)]
         self.show(_("HTTPS certificates"), "\n".join(L))
 
     def act_language(self):
@@ -1584,6 +1613,11 @@ def parse_args():
     ap.add_argument("--lang", default=None, metavar="LANG", help=_(
         "interface language: auto or one of {langs} (default: saved preference, else system language)").format(
             langs=", ".join(available_languages())))
+    ap.add_argument("--check", action="store_true", help=_(
+        "run the diagnostics once, without the interface, and exit (0 ok, 1 warnings, 2 problems, 3 cannot run)"))
+    ap.add_argument("--json", action="store_true", help=_("with --check: print the result as JSON"))
+    ap.add_argument("-q", "--quiet", action="store_true", help=_(
+        "with --check: print only warnings and problems (nothing if all is well)"))
     ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
     return ap.parse_args()
 
@@ -1591,7 +1625,18 @@ def parse_args():
 def main():
     args = parse_args()
     if not shutil.which("docker"):
-        sys.exit(_("Docker is not installed or not in PATH."))
+        msg = _("Docker is not installed or not in PATH.")
+        if args.check:
+            print(msg, file=sys.stderr)
+            sys.exit(3)
+        sys.exit(msg)
+    if args.check:
+        try:
+            configure(args)
+        except SystemExit as e:
+            print(e.code, file=sys.stderr)
+            sys.exit(3)
+        sys.exit(run_check(args))
     if not sys.stdout.isatty():
         sys.exit(_("This program needs an interactive terminal."))
     configure(args)
