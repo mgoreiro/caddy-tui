@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 22:04+0200\n"
+"POT-Creation-Date: 2026-10-17 22:14+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -354,6 +354,135 @@ msgstr ""
 msgid "HTTPS certificates valid ({n})"
 msgstr ""
 
+msgid ""
+"Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Run: "
+"sudo caddy-tui --setup-alerts"
+msgstr ""
+
+#, python-brace-format
+msgid "{host}: Caddy is OK again."
+msgstr ""
+
+msgid "Caddy check failed."
+msgstr ""
+
+#, python-brace-format
+msgid "Could not send the Telegram message: {error}"
+msgstr ""
+
+msgid " [Y/n] "
+msgstr ""
+
+msgid " [y/N] "
+msgstr ""
+
+msgid "Setting up alerts needs root. Run it with sudo."
+msgstr ""
+
+msgid "== caddy-tui alerts setup =="
+msgstr ""
+
+#, python-brace-format
+msgid "Caddy container: {name}"
+msgstr ""
+
+msgid "Telegram bot token (create one with @BotFather): "
+msgstr ""
+
+#, python-brace-format
+msgid "The bot token is not valid: {error}"
+msgstr ""
+
+msgid "No valid Telegram bot token."
+msgstr ""
+
+#, python-brace-format
+msgid "Bot: @{username}"
+msgstr ""
+
+msgid "Telegram chat id (empty = detect it)"
+msgstr ""
+
+#, python-brace-format
+msgid "Send any message to @{username} on Telegram now, then press Enter."
+msgstr ""
+
+#, python-brace-format
+msgid "Could not read the bot updates: {error}"
+msgstr ""
+
+msgid ""
+"The bot has not received any message yet. Write to it and run the setup "
+"again."
+msgstr ""
+
+#, python-brace-format
+msgid "Found chat: {title} ({id})"
+msgstr ""
+
+msgid "Send the alerts to this chat?"
+msgstr ""
+
+msgid "Cancelled."
+msgstr ""
+
+msgid "Check interval (e.g. 30m, 1h, 6h)"
+msgstr ""
+
+msgid "Invalid interval. Use between 5 minutes and 24 hours, e.g. 30m, 1h, 6h."
+msgstr ""
+
+msgid "Also notify on warnings (not only on problems)?"
+msgstr ""
+
+#, python-brace-format
+msgid "Saved {path} (mode 600)."
+msgstr ""
+
+#, python-brace-format
+msgid "systemctl failed: {error}"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"systemd timer enabled: every {minutes} min. See it with: systemctl list-"
+"timers {unit}.timer"
+msgstr ""
+
+#, python-brace-format
+msgid "No systemd found: cron job written to {path} (every {minutes} min)."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"{host}: caddy-tui alerts are set up. You will be notified here when the "
+"Caddy check finds problems."
+msgstr ""
+
+msgid "Test message sent to Telegram."
+msgstr ""
+
+msgid "First check:"
+msgstr ""
+
+msgid "Removing alerts needs root. Run it with sudo."
+msgstr ""
+
+#, python-brace-format
+msgid "Removed: {files}"
+msgstr ""
+
+msgid "There was nothing to remove."
+msgstr ""
+
+#, python-brace-format
+msgid "Also delete the saved Telegram settings ({path})?"
+msgstr ""
+
+#, python-brace-format
+msgid "Deleted {path}."
+msgstr ""
+
 msgid "Welcome. Press a key from the menu."
 msgstr ""
 
@@ -374,12 +503,6 @@ msgid "  (up {time})"
 msgstr ""
 
 msgid "↑/↓ PgUp/PgDn scroll output"
-msgstr ""
-
-msgid " [Y/n] "
-msgstr ""
-
-msgid " [y/N] "
 msgstr ""
 
 msgid "↑/↓ choose · Enter accept · Esc cancel"
@@ -788,6 +911,24 @@ msgid "with --check: print the result as JSON"
 msgstr ""
 
 msgid "with --check: print only warnings and problems (nothing if all is well)"
+msgstr ""
+
+msgid ""
+"with --check: send a Telegram message when there is a problem (and when it "
+"recovers)"
+msgstr ""
+
+msgid ""
+"interactive setup of the Telegram bot and the periodic check (needs root)"
+msgstr ""
+
+msgid "remove the periodic check set up by --setup-alerts"
+msgstr ""
+
+msgid "with --setup-alerts: check interval, e.g. 30m, 1h, 6h"
+msgstr ""
+
+msgid "with --setup-alerts: notify on warnings too"
 msgstr ""
 
 msgid "Docker is not installed or not in PATH."

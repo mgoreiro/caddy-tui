@@ -37,6 +37,7 @@ can be forced:
 | `--image` | `CADDY_IMAGE` | image used to validate/format |
 | `--lang` | `CADDY_TUI_LANG` | interface language |
 | `--check`, `--json`, `-q` | | headless diagnostics (see *Monitoring and alerts*) |
+| `--setup-alerts`, `--remove-alerts`, `--notify`, `--interval` | | Telegram alerts and periodic check |
 
 If the `Caddyfile` belongs to another user (e.g. under `/root/`), run it with `sudo`.
 
@@ -104,14 +105,25 @@ Add `--quiet` to print only warnings and problems (nothing if all is well) and `
 machine-readable output (`status`, `problems`, `warnings`, `checks[]`). These exit codes follow the
 Nagios/Icinga convention, so it also works as a monitoring plugin.
 
-Ready-to-use examples are installed in `/usr/share/doc/caddy-tui/examples/` (and live in
-[`examples/`](examples)): a **systemd service + timer** that checks every hour, and a script that sends a
-**Telegram** message when the check fails.
+### Telegram alerts (`--setup-alerts`)
 
 ```bash
-# quick cron example (hourly, mail the output when there is a problem)
-0 * * * *  root  caddy-tui --check --quiet --lang en
+sudo caddy-tui --setup-alerts
 ```
+
+A guided setup (it needs root) that:
+
+1. detects the Caddy container,
+2. asks for the **Telegram bot token** (create a bot with [@BotFather](https://t.me/BotFather)) and checks it,
+3. finds your **chat id** for you: write any message to the bot and press Enter,
+4. asks the **check interval** (5 min – 24 h, default 1 h) and whether warnings should also notify,
+5. saves the settings in `/etc/caddy-tui/alert.env` (mode 600), installs a **systemd service + timer**
+   (or a `/etc/cron.d` job if there is no systemd) running `caddy-tui --check --quiet --notify`, and
+6. sends a test message and runs a first check.
+
+Alerts are not noisy: a problem is reported once (again if it changes, or after 24 h if it persists),
+and you get a "Caddy is OK again" message when it recovers. `caddy-tui --check --notify` can also be
+used by hand or from your own cron job. Undo everything with `sudo caddy-tui --remove-alerts`.
 
 ## Design notes
 

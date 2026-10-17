@@ -6,6 +6,8 @@ import importlib.util
 import json
 import os
 import re
+import stat
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -295,6 +297,214 @@ class HeadlessCheck(unittest.TestCase):
 
     def test_format_items(self):
         self.assertEqual(c.format_items(self.ITEMS_WARN), ["✔ fine", "⚠ careful", "    detail"])
+
+
+def slurp(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+class AlertHelpers(unittest.TestCase):
+    def test_parse_interval(self):
+        self.assertEqual(c.parse_interval("30m"), 30)
+        self.assertEqual(c.parse_interval("1h"), 60)
+        self.assertEqual(c.parse_interval(" 2 hours "), 120)
+        self.assertEqual(c.parse_interval("90"), 90)
+        self.assertEqual(c.parse_interval("45min"), 45)
+        for bad in ("4m", "25h", "abc", "", "1d", "-5"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                c.parse_interval(bad)
+
+    def test_cron_schedule(self):
+        self.assertEqual(c.cron_schedule(30), "*/30 * * * *")
+        self.assertEqual(c.cron_schedule(60), "0 */1 * * *")
+        self.assertEqual(c.cron_schedule(360), "0 */6 * * *")
+        self.assertEqual(c.cron_schedule(1440), "0 0 * * *")
+
+    def test_unidades(self):
+        svc = c.render_service("/usr/bin/caddy-tui")
+        self.assertIn("ExecStart=/usr/bin/caddy-tui --check --quiet --notify", svc)
+        self.assertIn("SuccessExitStatus=1", svc)
+        self.assertIn("OnUnitActiveSec=45min", c.render_timer(45))
+        self.assertIn("root /usr/bin/caddy-tui --check --quiet --notify", c.render_cron("/usr/bin/caddy-tui", 30))
+
+    def test_env_file_roundtrip_y_permisos(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sub", "alert.env")
+            c.write_env_file(path, {"TELEGRAM_BOT_TOKEN": "1:abc", "EMPTY": "", "CADDY_CONTAINER": "my-caddy"})
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+            self.assertEqual(c.read_env_file(path), {"TELEGRAM_BOT_TOKEN": "1:abc", "CADDY_CONTAINER": "my-caddy"})
+        self.assertEqual(c.read_env_file("/no/such/file"), {})
+
+    def test_telegram_api_no_filtra_el_token(self):
+        err = c.urllib.error.URLError("failed https://api.telegram.org/bot123:SECRET/getMe")
+        with mock.patch.object(c.urllib.request, "urlopen", side_effect=err):
+            with self.assertRaises(RuntimeError) as cm:
+                c.telegram_api("123:SECRET", "getMe")
+        self.assertNotIn("SECRET", str(cm.exception))
+
+    def test_telegram_api_error_de_la_api(self):
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = io.StringIO('{"ok": false, "description": "Unauthorized"}')
+        with mock.patch.object(c.urllib.request, "urlopen", return_value=resp):
+            with self.assertRaisesRegex(RuntimeError, "Unauthorized"):
+                c.telegram_api("1:x", "getMe")
+
+
+class AlertDecision(unittest.TestCase):
+    ERR = [("err", "Port 8100 missing", [])]
+    ERR2 = [("err", "Another problem", [])]
+    OK = [("ok", "fine", [])]
+    WARN = [("warn", "careful", [])]
+    H = 3600
+
+    def decide(self, code, items, state, now=0, **kw):
+        return c.alert_decision(code, items, state, now, **kw)
+
+    def test_problema_nuevo_avisa(self):
+        kind, st = self.decide(2, self.ERR, {}, now=100)
+        self.assertEqual(kind, "problem")
+        self.assertTrue(st["failing"])
+
+    def test_mismo_problema_no_repite_hasta_pasar_24h(self):
+        __, st = self.decide(2, self.ERR, {}, now=0)
+        self.assertEqual(self.decide(2, self.ERR, st, now=23 * self.H)[0], None)
+        self.assertEqual(self.decide(2, self.ERR, st, now=25 * self.H)[0], "problem")
+
+    def test_problema_distinto_avisa_enseguida(self):
+        __, st = self.decide(2, self.ERR, {}, now=0)
+        self.assertEqual(self.decide(2, self.ERR2, st, now=60)[0], "problem")
+
+    def test_numeros_cambiantes_no_cuentan_como_problema_nuevo(self):
+        a = [("warn", "5 errors in the logs", [])]
+        b = [("warn", "9 errors in the logs", [])]
+        __, st = self.decide(2, a, {}, now=0)
+        self.assertIsNone(self.decide(2, b, st, now=60)[0])
+
+    def test_recuperacion(self):
+        __, st = self.decide(2, self.ERR, {}, now=0)
+        kind, st2 = self.decide(0, self.OK, st, now=60)
+        self.assertEqual(kind, "recovered")
+        self.assertIsNone(self.decide(0, self.OK, st2, now=120)[0])
+
+    def test_avisos_solo_si_se_pide(self):
+        self.assertIsNone(self.decide(1, self.WARN, {})[0])
+        self.assertEqual(self.decide(1, self.WARN, {}, on_warnings=True)[0], "problem")
+
+    def test_todo_bien_sin_historial_no_avisa(self):
+        self.assertEqual(self.decide(0, self.OK, {}), (None, {}))
+
+
+class NotifyResult(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        env = {"TELEGRAM_BOT_TOKEN": "1:x", "TELEGRAM_CHAT_ID": "42", "CADDY_TUI_STATE_DIR": self.tmp.name}
+        p = mock.patch.dict(os.environ, env, clear=True)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+        self.sent = []
+
+    def notify(self, items, code, fail=False):
+        def fake_send(token, chat, text):
+            if fail:
+                raise RuntimeError("boom")
+            self.sent.append(text)
+        with mock.patch.object(c, "telegram_send", side_effect=fake_send), \
+             contextlib.redirect_stderr(io.StringIO()):
+            c.notify_result(items, code)
+
+    ERR = [("err", "Port 8100 missing", ["detail"])]
+
+    def test_envia_una_vez_y_avisa_al_recuperarse(self):
+        self.notify(self.ERR, 2)
+        self.notify(self.ERR, 2)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("Port 8100 missing", self.sent[0])
+        self.notify([("ok", "fine", [])], 0)
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("OK again", self.sent[1])
+
+    def test_si_falla_el_envio_reintenta_en_la_siguiente(self):
+        self.notify(self.ERR, 2, fail=True)
+        self.notify(self.ERR, 2)
+        self.assertEqual(len(self.sent), 1)
+
+    def test_sin_configurar_no_envia(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.notify(self.ERR, 2)
+        self.assertEqual(self.sent, [])
+
+
+class SetupAndRemove(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.env_path, self.sysd = os.path.join(d, "etc", "alert.env"), os.path.join(d, "systemd")
+        os.makedirs(self.sysd)
+        self.calls, self.sent = [], []
+        patches = [
+            mock.patch.object(c, "ALERT_ENV", self.env_path), mock.patch.object(c, "SYSTEMD_DIR", self.sysd),
+            mock.patch.object(c, "CRON_FILE", os.path.join(d, "cron-caddy")),
+            mock.patch.object(c, "_systemd_available", return_value=True),
+            mock.patch.object(c, "configure", side_effect=lambda a: setattr(c, "CONTAINER", "my-caddy")),
+            mock.patch.object(c, "run", side_effect=lambda cmd, **k: (self.calls.append(cmd), (0, ""))[1]),
+            mock.patch.object(c, "diagnose", return_value=([("ok", "fine", [])], set(), {})),
+            mock.patch.object(c, "telegram_api", side_effect=lambda t, m, p=None, timeout=15:
+                              {"username": "mybot"} if m == "getMe" else [{"message": {"chat": {"id": 99, "title": "Me"}}}]),
+            mock.patch.object(c, "telegram_send", side_effect=lambda t, ch, txt: self.sent.append((ch, txt))),
+            mock.patch.object(os, "geteuid", return_value=0),
+            mock.patch.object(c.getpass, "getpass", return_value="123:tok"),
+            mock.patch.dict(os.environ, {}, clear=True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.args = argparse.Namespace(interval="30m", notify_warnings=True, caddyfile=None, dir=None, compose=None, service=None)
+
+    def run_setup(self, inputs):
+        with mock.patch("builtins.input", side_effect=inputs), contextlib.redirect_stdout(io.StringIO()) as out:
+            code = c.setup_alerts(self.args)
+        return code, out.getvalue()
+
+    def test_configura_servicio_timer_y_mensaje(self):
+        # chat id vacío -> se detecta; Enter; acepta el chat encontrado
+        code, out = self.run_setup(["", "", "y"])
+        self.assertEqual(code, 0)
+        env = c.read_env_file(self.env_path)
+        self.assertEqual((env["TELEGRAM_BOT_TOKEN"], env["TELEGRAM_CHAT_ID"], env["CADDY_CONTAINER"], env["ALERT_ON_WARNINGS"]),
+                         ("123:tok", "99", "my-caddy", "1"))
+        self.assertEqual(stat.S_IMODE(os.stat(self.env_path).st_mode), 0o600)
+        self.assertIn("OnUnitActiveSec=30min", slurp(os.path.join(self.sysd, "caddy-tui-check.timer")))
+        self.assertIn("--check --quiet --notify", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
+        self.assertIn(["systemctl", "enable", "--now", "caddy-tui-check.timer"], self.calls)
+        self.assertEqual(self.sent[0][0], "99")
+        self.assertIn("@mybot", out)
+
+    def test_sin_systemd_usa_cron(self):
+        with mock.patch.object(c, "_systemd_available", return_value=False):
+            self.run_setup(["", "", "y"])
+        self.assertIn("*/30 * * * *", slurp(c.CRON_FILE))
+        self.assertEqual(os.listdir(self.sysd), [])
+
+    def test_requiere_root(self):
+        with mock.patch.object(os, "geteuid", return_value=1000), self.assertRaises(SystemExit):
+            c.setup_alerts(self.args)
+
+    def test_intervalo_invalido_aborta_sin_escribir(self):
+        self.args.interval = "2m"
+        with self.assertRaises(SystemExit):
+            self.run_setup(["42"])
+        self.assertFalse(os.path.exists(self.env_path))
+
+    def test_quitar(self):
+        self.run_setup(["", "", "y"])
+        with mock.patch("builtins.input", return_value="y"), contextlib.redirect_stdout(io.StringIO()):
+            c.remove_alerts(self.args)
+        self.assertEqual(os.listdir(self.sysd), [])
+        self.assertFalse(os.path.exists(self.env_path))
+        self.assertIn(["systemctl", "disable", "--now", "caddy-tui-check.timer"], self.calls)
 
 
 class Translations(unittest.TestCase):

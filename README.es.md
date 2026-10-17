@@ -97,9 +97,26 @@ Con `--quiet` imprime solo avisos y problemas (nada si todo va bien) y con `--js
 máquinas (`status`, `problems`, `warnings`, `checks[]`). Los códigos siguen la convención de
 Nagios/Icinga, así que sirve también como plugin de monitorización.
 
-Se instalan ejemplos listos para usar en `/usr/share/doc/caddy-tui/examples/` (y están en
-[`examples/`](examples)): un **servicio + timer de systemd** que comprueba cada hora y un script que
-envía un mensaje por **Telegram** si la comprobación falla.
+### Alertas por Telegram (`--setup-alerts`)
+
+```bash
+sudo caddy-tui --setup-alerts
+```
+
+Una configuración guiada (necesita root) que:
+
+1. detecta el contenedor de Caddy,
+2. pide el **token del bot de Telegram** (créalo con [@BotFather](https://t.me/BotFather)) y lo comprueba,
+3. encuentra tu **id de chat**: escribe cualquier mensaje al bot y pulsa Enter,
+4. pregunta el **intervalo de comprobación** (5 min – 24 h, por defecto 1 h) y si los avisos también deben notificar,
+5. guarda la configuración en `/etc/caddy-tui/alert.env` (modo 600), instala un **servicio + timer de
+   systemd** (o una tarea en `/etc/cron.d` si no hay systemd) que ejecuta
+   `caddy-tui --check --quiet --notify`, y
+6. envía un mensaje de prueba y hace una primera comprobación.
+
+Las alertas no molestan: un problema se avisa una vez (otra vez si cambia, o a las 24 h si persiste) y
+recibes un "Caddy vuelve a estar bien" cuando se recupera. `caddy-tui --check --notify` también sirve a mano
+o desde tu propio cron. Para deshacerlo todo: `sudo caddy-tui --remove-alerts`.
 
 ## Notas de diseño
 
