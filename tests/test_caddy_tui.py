@@ -1247,6 +1247,199 @@ class ImageUpdateFlow(unittest.TestCase):
         self.assertIn("recreate it yourself", self.shown[-1][1])
 
 
+class InstallPieces(unittest.TestCase):
+    def test_compose_generado(self):
+        text = c.render_install_compose(8080, 8443, "mycaddy")
+        for frag in ("image: caddy:2-alpine", "container_name: mycaddy", '"8080:80"', '"8443:443"', '"8443:443/udp"',
+                     "./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "host.docker.internal:host-gateway"):
+            self.assertIn(frag, text)
+
+    def test_caddyfile_generado(self):
+        full = c.render_install_caddyfile("app.example.com", "192.168.1.5:8080", "me@example.com")
+        self.assertTrue(full.startswith("{\n\temail me@example.com\n}"))
+        self.assertIn("app.example.com {", full)
+        self.assertIn("reverse_proxy 192.168.1.5:8080", full)
+        self.assertEqual([b["addr"] for b in c.find_site_blocks(full)], [["app.example.com"]])
+        placeholder = c.render_install_caddyfile()
+        self.assertIn(":80 {", placeholder)
+        self.assertNotIn("reverse_proxy", placeholder)
+
+    def test_docker_run_equivalente(self):
+        cmd = c.docker_run_command("/opt/caddy", 80, 443, "caddy")
+        self.assertEqual(cmd[:3], ["docker", "run", "-d"])
+        self.assertIn("80:80", cmd)
+        self.assertIn("/opt/caddy/Caddyfile:/etc/caddy/Caddyfile:ro", cmd)
+        self.assertEqual(cmd[-1], "caddy:2-alpine")
+
+    def test_puerto_en_uso(self):
+        s = socket.socket()
+        s.bind(("0.0.0.0", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        try:
+            self.assertTrue(c.port_in_use(port))
+        finally:
+            s.close()
+        self.assertFalse(c.port_in_use(port))
+
+    def test_paquetes_de_docker_segun_la_distro(self):
+        plan = lambda ids, cands, apt=True: c.docker_install_plan(ids, lambda p: cands.get(p, ""), apt)
+        self.assertEqual(plan(["debian"], {"docker-compose": "1.29.2-3"}), ["docker.io"])                       # bookworm: only v1
+        self.assertEqual(plan(["ubuntu", "debian"], {"docker-compose-v2": "2.40.3-1", "docker-compose": "1.29.2-6"}),
+                         ["docker.io", "docker-compose-v2"])
+        self.assertEqual(plan(["debian"], {"docker-compose": "2.26.1-4"}), ["docker.io", "docker-compose"])    # trixie
+        self.assertEqual(plan(["debian"], {"docker-compose-plugin": "2.29.0-1"}), ["docker.io", "docker-compose-plugin"])
+        self.assertIsNone(plan(["fedora"], {}))
+        self.assertIsNone(plan(["debian"], {}, apt=False))
+
+    def test_configure_sin_contenedores_lanza_NoCaddyContainer(self):
+        args = argparse.Namespace(container=None)
+        with mock.patch.object(c, "list_caddy_containers", return_value=[]):
+            with self.assertRaises(c.NoCaddyContainer) as cm:
+                c.configure(args)
+        self.assertIsInstance(cm.exception, SystemExit)             # uncaught it behaves like sys.exit(message)
+        self.assertIn("No Caddy container", cm.exception.code)
+
+
+class EnsureDocker(unittest.TestCase):
+    def run_ensure(self, which, geteuid=0, plan=("docker.io",), answers=(True,), results=None):
+        calls, said = [], io.StringIO()
+        results = list(results or [])
+
+        def fake_run(cmd, **k):
+            calls.append(cmd)
+            return results.pop(0) if results else (0, "")
+        ans = iter(answers)
+        with mock.patch.object(c.shutil, "which", return_value=which), mock.patch.object(os, "geteuid", return_value=geteuid), \
+             mock.patch.object(c, "docker_install_plan", return_value=list(plan) if plan else None), \
+             mock.patch.object(c, "ask_yes", side_effect=lambda *a, **k: next(ans)), \
+             mock.patch.object(c, "run", side_effect=fake_run), mock.patch.object(c, "_systemd_available", return_value=True), \
+             mock.patch.object(c, "compose_available", return_value=True), mock.patch.dict(os.environ, {}, clear=True), \
+             contextlib.redirect_stdout(said):
+            ok = c.ensure_docker()
+        return ok, calls, said.getvalue()
+
+    def test_ya_instalado(self):
+        self.assertEqual(self.run_ensure("/usr/bin/docker")[:2], (True, []))
+
+    def test_distro_no_soportada(self):
+        ok, calls, out = self.run_ensure(None, plan=None)
+        self.assertFalse(ok)
+        self.assertIn("docs.docker.com", out)
+
+    def test_sin_root_no_instala(self):
+        ok, calls, out = self.run_ensure(None, geteuid=1000)
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
+        self.assertIn("sudo caddy-tui --install", out)
+
+    def test_el_usuario_dice_que_no(self):
+        ok, calls, __ = self.run_ensure(None, answers=(False,))
+        self.assertEqual((ok, calls), (False, []))
+
+    def test_instala_y_activa_el_servicio(self):
+        ok, calls, out = self.run_ensure(None, plan=("docker.io", "docker-compose-v2"))
+        self.assertTrue(ok)
+        self.assertEqual(calls[0], ["apt-get", "update"])
+        self.assertEqual(calls[1], ["apt-get", "install", "-y", "docker.io", "docker-compose-v2"])
+        self.assertIn(["systemctl", "enable", "--now", "docker"], calls)
+        self.assertIn("Docker installed", out)
+
+    def test_fallo_de_apt(self):
+        ok, calls, out = self.run_ensure(None, results=[(0, ""), (100, "E: Unable to locate package")])
+        self.assertFalse(ok)
+        self.assertIn("Unable to locate", out)
+
+
+class InstallFlow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = os.path.join(self.tmp.name, "caddy")
+        self.calls = []
+        self.out = io.StringIO()
+
+    def go(self, lines=("", "", "", ""), yes=(True,), compose=True, busy=(), validate=(True, ""), args_dir=None, existing=()):
+        line_it, yes_it = iter(lines), iter(yes)
+        patches = [
+            mock.patch.object(c, "native_caddy_running", return_value=False),
+            mock.patch.object(c, "list_caddy_containers", return_value=list(existing)),
+            mock.patch.object(c, "resolve_host", return_value=["203.0.113.9"]),
+            mock.patch.object(c, "port_in_use", side_effect=lambda p: p in busy),
+            mock.patch.object(c, "port_owner", return_value="nginx"),
+            mock.patch.object(c, "compose_available", return_value=compose),
+            mock.patch.object(c, "validate_standalone", return_value=validate),
+            mock.patch.object(c, "inspect_container", return_value=None),
+            mock.patch.object(c, "container_state_of", return_value=("running", "")),
+            mock.patch.object(c, "ask_line", side_effect=lambda *a, **k: next(line_it)),
+            mock.patch.object(c, "ask_yes", side_effect=lambda *a, **k: next(yes_it, True)),
+            mock.patch.object(c, "run", side_effect=lambda cmd, **k: (self.calls.append(cmd), (0, ""))[1]),
+            mock.patch.object(c.time, "sleep"),
+            mock.patch.object(c, "BASE", self.tmp.name),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        args = argparse.Namespace(dir=args_dir)
+        with contextlib.redirect_stdout(self.out):
+            return c.install_flow(args)
+
+    def read(self, name):
+        with open(os.path.join(self.dir, name), encoding="utf-8") as f:
+            return f.read()
+
+    def test_flujo_completo_con_compose(self):
+        # folder, domain, upstream, email
+        name = self.go(lines=(self.dir, "app.example.com", "192.168.1.5:8080", "me@example.com"))
+        self.assertEqual(name, "caddy")
+        self.assertIn("reverse_proxy 192.168.1.5:8080", self.read("Caddyfile"))
+        self.assertIn("email me@example.com", self.read("Caddyfile"))
+        self.assertIn('"80:80"', self.read("docker-compose.yml"))
+        self.assertEqual(self.calls[-1][:4], ["docker", "compose", "-f", os.path.join(self.dir, "docker-compose.yml")])
+        self.assertEqual(self.calls[-1][-2:], ["up", "-d"])
+
+    def test_sin_dominio_crea_un_sitio_provisional(self):
+        self.assertEqual(self.go(lines=(self.dir, "")), "caddy")
+        self.assertIn(":80 {", self.read("Caddyfile"))
+
+    def test_sin_compose_usa_docker_run(self):
+        self.assertEqual(self.go(lines=(self.dir, ""), compose=False), "caddy")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "docker-compose.yml")))
+        self.assertEqual(self.calls[-1][:3], ["docker", "run", "-d"])
+
+    def test_puertos_ocupados_ofrece_alternativos(self):
+        self.go(lines=(self.dir, ""), busy=(80,))
+        self.assertIn('"8080:80"', self.read("docker-compose.yml"))
+        self.assertIn("nginx", self.out.getvalue())
+
+    def test_puertos_ocupados_y_el_usuario_rechaza(self):
+        self.assertIsNone(self.go(lines=(self.dir, ""), busy=(80, 443), yes=(False,)))
+        self.assertFalse(os.path.exists(self.dir))
+
+    def test_no_pisa_una_carpeta_con_configuracion(self):
+        os.makedirs(self.dir)
+        with open(os.path.join(self.dir, "Caddyfile"), "w") as f:
+            f.write("keep")
+        self.assertIsNone(self.go(lines=(self.dir,)))
+        self.assertEqual(self.read("Caddyfile"), "keep")
+
+    def test_configuracion_invalida_no_escribe_nada(self):
+        self.assertIsNone(self.go(lines=(self.dir, ""), validate=(False, "boom")))
+        self.assertFalse(os.path.exists(self.dir))
+        self.assertIn("boom", self.out.getvalue())
+
+    def test_dominio_invalido_o_sin_destino(self):
+        self.assertIsNone(self.go(lines=(self.dir, "bad domain!")))
+        self.assertIsNone(self.go(lines=(self.dir + "2", "app.example.com", "")))
+
+    def test_confirmacion_negativa(self):
+        self.assertIsNone(self.go(lines=(self.dir, ""), yes=(False,)))
+        self.assertFalse(os.path.exists(self.dir))
+
+    def test_ya_hay_un_caddy_pregunta_antes(self):
+        self.assertIsNone(self.go(lines=(self.dir, ""), existing=[("old", "caddy:2", "running")], yes=(False,)))
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

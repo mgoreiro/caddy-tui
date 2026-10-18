@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 15:22+0200\n"
+"POT-Creation-Date: 2026-10-18 17:32+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -648,6 +648,169 @@ msgstr "la imagen está fijada por digest"
 msgid "the registry did not return a digest"
 msgstr "el registro no devolvió un digest"
 
+msgid "Docker is not installed."
+msgstr "Docker no está instalado."
+
+msgid ""
+"Install it following https://docs.docker.com/engine/install/ and run caddy-"
+"tui again."
+msgstr ""
+"Instálalo siguiendo https://docs.docker.com/engine/install/ y vuelve a "
+"ejecutar caddy-tui."
+
+msgid "Installing Docker needs root. Run: sudo caddy-tui --install"
+msgstr "Instalar Docker necesita root. Ejecuta: sudo caddy-tui --install"
+
+#, python-brace-format
+msgid "Install Docker now? (apt packages: {packages})"
+msgstr "¿Instalar Docker ahora? (paquetes apt: {packages})"
+
+msgid "Installing Docker (this can take a few minutes)..."
+msgstr "Instalando Docker (puede tardar unos minutos)..."
+
+msgid "The installation failed:"
+msgstr "La instalación ha fallado:"
+
+#, python-brace-format
+msgid "Docker was installed but is not responding: {error}"
+msgstr "Docker se instaló pero no responde: {error}"
+
+#, python-brace-format
+msgid ""
+"Let user {user} run docker without sudo (adds them to the docker group)?"
+msgstr "¿Permitir que {user} use docker sin sudo (lo añade al grupo docker)?"
+
+#, python-brace-format
+msgid "Done. {user} must log out and back in for it to take effect."
+msgstr ""
+"Hecho. {user} debe cerrar sesión y volver a entrar para que surta efecto."
+
+msgid ""
+"Note: docker compose v2 is not available in this distribution. Caddy will "
+"run as a plain container: some automatic fixes will show you the change to "
+"make instead of applying it."
+msgstr ""
+"Nota: docker compose v2 no está disponible en esta distribución. Caddy se "
+"ejecutará como un contenedor simple: algunas correcciones automáticas te "
+"mostrarán el cambio a hacer en vez de aplicarlo."
+
+msgid "Docker installed."
+msgstr "Docker instalado."
+
+msgid "== caddy-tui: set up Caddy in Docker =="
+msgstr "== caddy-tui: instalar Caddy en Docker =="
+
+msgid ""
+"A Caddy that is not in Docker is running on this machine; it probably owns "
+"ports 80/443."
+msgstr ""
+"Hay un Caddy fuera de Docker funcionando en esta máquina; probablemente "
+"ocupa los puertos 80/443."
+
+msgid "Continue anyway?"
+msgstr "¿Continuar de todos modos?"
+
+#, python-brace-format
+msgid "A Caddy container already exists ({name}). Create another one?"
+msgstr "Ya existe un contenedor de Caddy ({name}). ¿Crear otro?"
+
+msgid "Folder for the configuration"
+msgstr "Carpeta para la configuración"
+
+#, python-brace-format
+msgid ""
+"{path} already contains a Caddyfile or docker-compose.yml. Choose another "
+"folder."
+msgstr ""
+"{path} ya contiene un Caddyfile o un docker-compose.yml. Elige otra carpeta."
+
+msgid "Domain of your first site (empty = decide later)"
+msgstr "Dominio de tu primer sitio (vacío = decidirlo después)"
+
+msgid "Invalid domain"
+msgstr "Dominio no válido"
+
+msgid ""
+"Where does that site's application listen? (host:port, e.g. "
+"192.168.1.50:8080)"
+msgstr ""
+"¿Dónde escucha la aplicación de ese sitio? (host:puerto, p. ej. "
+"192.168.1.50:8080)"
+
+msgid "Enter the upstream, e.g. 192.168.1.50:8080"
+msgstr "Indica el destino, p. ej. 192.168.1.50:8080"
+
+msgid "Email for Let's Encrypt notices (optional)"
+msgstr "Email para los avisos de Let's Encrypt (opcional)"
+
+#, python-brace-format
+msgid "Ports in use: {ports}"
+msgstr "Puertos en uso: {ports}"
+
+msgid ""
+"Let's Encrypt needs 80 and 443. You can use other ports for now (e.g. behind "
+"a router that forwards 80/443 to them)."
+msgstr ""
+"Let's Encrypt necesita el 80 y el 443. Puedes usar otros puertos por ahora "
+"(p. ej. tras un router que reenvíe el 80/443 a ellos)."
+
+msgid "Use alternative ports (8080 / 8443)?"
+msgstr "¿Usar puertos alternativos (8080 / 8443)?"
+
+#, python-brace-format
+msgid "Folder: {path}"
+msgstr "Carpeta: {path}"
+
+#, python-brace-format
+msgid "Files: {files}"
+msgstr "Ficheros: {files}"
+
+#, python-brace-format
+msgid "Site: {site}"
+msgstr "Sitio: {site}"
+
+msgid "none yet (a placeholder on port 80)"
+msgstr "ninguno todavía (uno provisional en el puerto 80)"
+
+#, python-brace-format
+msgid "Ports: {http} → 80, {https} → 443"
+msgstr "Puertos: {http} → 80, {https} → 443"
+
+msgid "Create it and start Caddy?"
+msgstr "¿Crearlo y arrancar Caddy?"
+
+msgid "Validating the configuration (pulls the Caddy image the first time)..."
+msgstr ""
+"Validando la configuración (la primera vez descarga la imagen de Caddy)..."
+
+msgid "The generated configuration is NOT valid"
+msgstr "La configuración generada NO es válida"
+
+msgid "Starting Caddy..."
+msgstr "Arrancando Caddy..."
+
+msgid "Could not start Caddy:"
+msgstr "No se pudo arrancar Caddy:"
+
+msgid "Caddy did not stay running:"
+msgstr "Caddy no se mantuvo en marcha:"
+
+#, python-brace-format
+msgid "Caddy is running in container '{name}' (configuration in {path})."
+msgstr ""
+"Caddy está en marcha en el contenedor '{name}' (configuración en {path})."
+
+#, python-brace-format
+msgid ""
+"It will request the certificate for {domain} on the first HTTPS request: the "
+"DNS must point to this server and ports 80/443 must reach it."
+msgstr ""
+"Pedirá el certificado de {domain} en la primera petición HTTPS: el DNS debe "
+"apuntar a este servidor y los puertos 80/443 deben llegar hasta él."
+
+msgid "Opening caddy-tui..."
+msgstr "Abriendo caddy-tui..."
+
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
 
@@ -885,14 +1048,8 @@ msgstr "Déjala vacía para conservar la contraseña actual"
 msgid "Stored hashed (bcrypt) in the Caddyfile"
 msgstr "Se guarda cifrada (bcrypt) en el Caddyfile"
 
-msgid "Invalid domain"
-msgstr "Dominio no válido"
-
 msgid "A block for that domain already exists in the Caddyfile"
 msgstr "Ya existe un bloque para ese dominio en el Caddyfile"
-
-msgid "Enter the upstream, e.g. 192.168.1.50:8080"
-msgstr "Indica el destino, p. ej. 192.168.1.50:8080"
 
 msgid "Enter user and password, or leave both empty"
 msgstr "Indica usuario y contraseña, o deja ambos vacíos"
@@ -963,9 +1120,6 @@ msgstr "Añadir servicio"
 
 msgid "Add service: ERROR"
 msgstr "Añadir servicio: ERROR"
-
-msgid "The generated configuration is NOT valid"
-msgstr "La configuración generada NO es válida"
 
 msgid "Block preview (will be appended to the end of the Caddyfile)"
 msgstr "Vista previa del bloque (se añadirá al final del Caddyfile)"
@@ -1328,8 +1482,16 @@ msgstr "con --setup-alerts: intervalo de comprobación, p. ej. 30m, 1h, 6h"
 msgid "with --setup-alerts: notify on warnings too"
 msgstr "con --setup-alerts: avisar también de los avisos"
 
-msgid "Docker is not installed or not in PATH."
-msgstr "Docker no está instalado o no está en el PATH."
+msgid "guided setup of a new Caddy in Docker (installs Docker first if needed)"
+msgstr ""
+"instalación guiada de un Caddy nuevo en Docker (instala antes Docker si hace "
+"falta)"
 
 msgid "This program needs an interactive terminal."
 msgstr "Este programa necesita un terminal interactivo."
+
+msgid "Docker is not installed or not in PATH."
+msgstr "Docker no está instalado o no está en el PATH."
+
+msgid "Set up a new Caddy now with the guided installer?"
+msgstr "¿Instalar ahora un Caddy nuevo con el asistente?"
