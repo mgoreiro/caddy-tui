@@ -24,26 +24,34 @@ compose project and service); any value can be forced with options or variables:
 
 Headless mode for cron / systemd / monitoring (read-only):
     caddy-tui --check [--quiet] [--json]   exit 0 ok, 1 warnings, 2 problems, 3 cannot run
+    caddy-tui --check --notify             also alerts through Telegram
+    sudo caddy-tui --setup-alerts          guided setup: Telegram bot + systemd timer (or cron)
     EDITOR                          editor to use (default nano / vi)
 """
 import argparse
 import curses
+import getpass
 import gettext
+import hashlib
 import json
 import os
 import queue
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -966,7 +974,318 @@ def run_check(args):
     elif not (args.quiet and code == 0):
         shown = [i for i in items if not args.quiet or i[0] != "ok"]
         print("\n".join(format_items(shown) + ["", summary_line(items)]))
+    if getattr(args, "notify", False):
+        notify_result(items, code)
     return code
+
+
+# ------------------------------------------------------------------ alerts ---
+ALERT_ENV = os.environ.get("CADDY_TUI_ALERT_ENV", "/etc/caddy-tui/alert.env")
+SYSTEMD_DIR = "/etc/systemd/system"
+UNIT_NAME = "caddy-tui-check"
+CRON_FILE = "/etc/cron.d/caddy-tui-check"
+
+
+def state_path():
+    return os.path.join(os.environ.get("CADDY_TUI_STATE_DIR") or "/var/lib/caddy-tui", "alert-state.json")
+
+
+def read_env_file(path):
+    """KEY=VALUE lines (systemd EnvironmentFile style) -> dict; {} if unreadable."""
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    out[k.strip()] = v.strip().strip("\"'")
+    except OSError:
+        pass
+    return out
+
+
+def write_env_file(path, values):
+    """Write KEY=VALUE lines with mode 600 (it holds the bot token)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("# Written by caddy-tui --setup-alerts\n")
+        f.writelines(f"{k}={v}\n" for k, v in values.items() if v != "")
+    os.chmod(path, 0o600)
+
+
+def load_alert_env():
+    """Fill missing environment variables from the alerts file (used by --notify)."""
+    for k, v in read_env_file(ALERT_ENV).items():
+        os.environ.setdefault(k, v)
+
+
+def parse_interval(text):
+    """'30m' / '2h' / '90' (minutes) -> minutes, between 5 minutes and 24 hours."""
+    m = re.fullmatch(r"\s*(\d+)\s*([mh]?)(?:in|our|ours)?\s*", text.lower())
+    if not m:
+        raise ValueError(text)
+    minutes = int(m.group(1)) * (60 if m.group(2) == "h" else 1)
+    if not 5 <= minutes <= 24 * 60:
+        raise ValueError(text)
+    return minutes
+
+
+def telegram_api(token, method, params=None, timeout=15):
+    """Call the Telegram Bot API; returns `result` or raises RuntimeError (token never leaks)."""
+    base = os.environ.get("CADDY_TUI_TELEGRAM_API") or "https://api.telegram.org"
+    url = f"{base}/bot{token}/{method}"
+    data = urllib.parse.urlencode(params).encode() if params else None
+    try:
+        with urllib.request.urlopen(url, data=data, timeout=timeout) as r:
+            body = json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.load(e)
+        except ValueError:
+            body = {"ok": False, "description": f"HTTP {e.code}"}
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise RuntimeError(str(e).replace(token, "***"))
+    if not body.get("ok"):
+        raise RuntimeError(str(body.get("description", "error")))
+    return body.get("result")
+
+
+def telegram_send(token, chat_id, text):
+    telegram_api(token, "sendMessage", {"chat_id": chat_id, "text": text[:3900]})
+
+
+def telegram_find_chat(token):
+    """(chat_id, title) of the latest chat that wrote to the bot, or None."""
+    for u in reversed(telegram_api(token, "getUpdates") or []):
+        msg = u.get("message") or u.get("channel_post") or u.get("edited_message") or {}
+        chat = msg.get("chat")
+        if chat:
+            return chat["id"], chat.get("title") or chat.get("username") or chat.get("first_name") or str(chat["id"])
+    return None
+
+
+def alert_decision(code, items, state, now, on_warnings=False, repeat_hours=24):
+    """Decide whether to notify. -> (kind, new_state); kind in (None, "problem", "recovered")."""
+    failing = code >= 2 or (on_warnings and code == 1)
+    shown = [i for i in items if i[0] != "ok"]
+    digest = hashlib.sha256("|".join(f"{l}:{re.sub(r'[0-9]+', '#', t)}" for l, t, __ in shown).encode()).hexdigest()[:16]
+    if failing:
+        same = state.get("failing") and state.get("digest") == digest
+        if same and now - state.get("sent", 0) < repeat_hours * 3600:
+            return None, state
+        return "problem", {"failing": True, "digest": digest, "sent": now}
+    if state.get("failing"):
+        return "recovered", {"failing": False, "digest": "", "sent": now}
+    return None, state
+
+
+def notify_result(items, code):
+    """Send the Telegram alert (or recovery notice) for a --check result when due."""
+    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        print(_("Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Run: sudo caddy-tui --setup-alerts"),
+              file=sys.stderr)
+        return
+    try:
+        with open(state_path(), encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {}
+    on_warn = os.environ.get("ALERT_ON_WARNINGS") == "1"
+    try:
+        repeat = float(os.environ.get("ALERT_REPEAT_HOURS") or 24)
+    except ValueError:
+        repeat = 24
+    kind, new_state = alert_decision(code, items, state, time.time(), on_warn, repeat)
+    if not kind:
+        return
+    host = socket.gethostname()
+    if kind == "recovered":
+        text = "✔ " + _("{host}: Caddy is OK again.").format(host=host)
+    else:
+        icon = "✘" if code >= 2 else "⚠"
+        text = f"{icon} {host}: " + _("Caddy check failed.") + "\n\n" + "\n".join(
+            format_items([i for i in items if i[0] != "ok"]) + ["", summary_line(items)])
+    try:
+        telegram_send(token, chat, text)
+    except RuntimeError as e:
+        print(_("Could not send the Telegram message: {error}").format(error=e), file=sys.stderr)
+        return                                  # state not saved: it will retry on the next run
+    try:
+        os.makedirs(os.path.dirname(state_path()), exist_ok=True)
+        with open(state_path(), "w", encoding="utf-8") as f:
+            json.dump(new_state, f)
+    except OSError as e:
+        print(e, file=sys.stderr)
+
+
+def render_service(command):
+    return f"""[Unit]
+Description=Check the Caddy container with caddy-tui
+Documentation=man:caddy-tui(1)
+
+[Service]
+Type=oneshot
+EnvironmentFile=-{ALERT_ENV}
+StateDirectory=caddy-tui
+ExecStart={command} --check --quiet --notify
+# Exit 1 means warnings only: not a failure of the unit.
+SuccessExitStatus=1
+"""
+
+
+def render_timer(minutes):
+    return f"""[Unit]
+Description=Periodic Caddy check (caddy-tui)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec={minutes}min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def cron_schedule(minutes):
+    if minutes < 60:
+        return f"*/{minutes} * * * *"
+    hours = minutes // 60
+    return "0 0 * * *" if hours >= 24 else f"0 */{hours} * * *"
+
+
+def render_cron(command, minutes):
+    return (f"# caddy-tui: periodic Caddy check with Telegram alerts\nSHELL=/bin/sh\n"
+            f"{cron_schedule(minutes)} root {command} --check --quiet --notify >/dev/null 2>&1\n")
+
+
+def ask_line(prompt, default=""):
+    try:
+        value = input(f"{prompt}" + (f" [{default}]" if default else "") + ": ").strip()
+    except EOFError:
+        value = ""
+    return value or default
+
+
+def ask_yes(prompt, default=False):
+    try:
+        value = input(prompt + (_(" [Y/n] ") if default else _(" [y/N] "))).strip().lower()
+    except EOFError:
+        value = ""
+    return default if not value else value[0] in ("y", "s")
+
+
+def _program_command():
+    exe = os.path.abspath(sys.argv[0])
+    return exe if os.access(exe, os.X_OK) else f"{sys.executable} {exe}"
+
+
+def _systemd_available():
+    return os.path.isdir("/run/systemd/system") and bool(shutil.which("systemctl"))
+
+
+def setup_alerts(args):
+    """Interactive setup: Telegram bot + periodic check (systemd timer, or cron if there is no systemd)."""
+    if os.geteuid() != 0:
+        sys.exit(_("Setting up alerts needs root. Run it with sudo."))
+    print(_("== caddy-tui alerts setup =="))
+    configure(args)
+    print(_("Caddy container: {name}").format(name=CONTAINER))
+    old = read_env_file(ALERT_ENV)
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or old.get("TELEGRAM_BOT_TOKEN", "")
+    me = None
+    for __ in range(3):
+        if not token:
+            token = getpass.getpass(_("Telegram bot token (create one with @BotFather): ")).strip()
+        try:
+            me = telegram_api(token, "getMe")
+            break
+        except RuntimeError as e:
+            print(_("The bot token is not valid: {error}").format(error=e))
+            token = ""
+    if not me:
+        sys.exit(_("No valid Telegram bot token."))
+    bot = me.get("username", "bot")
+    print(_("Bot: @{username}").format(username=bot))
+
+    chat = os.environ.get("TELEGRAM_CHAT_ID") or old.get("TELEGRAM_CHAT_ID", "")
+    if not chat:
+        chat = ask_line(_("Telegram chat id (empty = detect it)"))
+    if not chat:
+        input(_("Send any message to @{username} on Telegram now, then press Enter.").format(username=bot))
+        try:
+            found = telegram_find_chat(token)
+        except RuntimeError as e:
+            sys.exit(_("Could not read the bot updates: {error}").format(error=e))
+        if not found:
+            sys.exit(_("The bot has not received any message yet. Write to it and run the setup again."))
+        chat = str(found[0])
+        print(_("Found chat: {title} ({id})").format(title=found[1], id=found[0]))
+        if not ask_yes(_("Send the alerts to this chat?"), True):
+            sys.exit(_("Cancelled."))
+
+    try:
+        minutes = parse_interval(args.interval or ask_line(_("Check interval (e.g. 30m, 1h, 6h)"), "1h"))
+    except ValueError:
+        sys.exit(_("Invalid interval. Use between 5 minutes and 24 hours, e.g. 30m, 1h, 6h."))
+    on_warn = args.notify_warnings or ask_yes(_("Also notify on warnings (not only on problems)?"), False)
+
+    values = {"TELEGRAM_BOT_TOKEN": token, "TELEGRAM_CHAT_ID": chat, "CADDY_CONTAINER": CONTAINER,
+              "CADDY_TUI_LANG": LANG, "ALERT_ON_WARNINGS": "1" if on_warn else "0",
+              "CADDY_CADDYFILE": args.caddyfile or "", "CADDY_DIR": args.dir or "",
+              "CADDY_COMPOSE": args.compose or "", "CADDY_SERVICE": args.service or ""}
+    write_env_file(ALERT_ENV, values)
+    print(_("Saved {path} (mode 600).").format(path=ALERT_ENV))
+
+    command = _program_command()
+    if _systemd_available():
+        for name, text in ((UNIT_NAME + ".service", render_service(command)), (UNIT_NAME + ".timer", render_timer(minutes))):
+            with open(os.path.join(SYSTEMD_DIR, name), "w", encoding="utf-8") as f:
+                f.write(text)
+        for cmd in (["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", UNIT_NAME + ".timer"]):
+            rc, out = run(cmd, timeout=60)
+            if rc != 0:
+                sys.exit(_("systemctl failed: {error}").format(error=out))
+        print(_("systemd timer enabled: every {minutes} min. See it with: systemctl list-timers {unit}.timer").format(
+            minutes=minutes, unit=UNIT_NAME))
+    else:
+        with open(CRON_FILE, "w", encoding="utf-8") as f:
+            f.write(render_cron(command, minutes))
+        print(_("No systemd found: cron job written to {path} (every {minutes} min).").format(path=CRON_FILE, minutes=minutes))
+
+    host = socket.gethostname()
+    try:
+        telegram_send(token, chat, "✔ " + _("{host}: caddy-tui alerts are set up. You will be notified here when the Caddy check finds problems.").format(host=host))
+        print(_("Test message sent to Telegram."))
+    except RuntimeError as e:
+        print(_("Could not send the Telegram message: {error}").format(error=e))
+    items, __, __ = diagnose()
+    print(_("First check:") + " " + summary_line(items))
+    return 0
+
+
+def remove_alerts(args):
+    """Undo --setup-alerts: stop the timer, delete the units / cron job, optionally the saved settings."""
+    if os.geteuid() != 0:
+        sys.exit(_("Removing alerts needs root. Run it with sudo."))
+    if _systemd_available():
+        run(["systemctl", "disable", "--now", UNIT_NAME + ".timer"], timeout=60)
+    removed = []
+    for path in (os.path.join(SYSTEMD_DIR, UNIT_NAME + ".service"), os.path.join(SYSTEMD_DIR, UNIT_NAME + ".timer"), CRON_FILE):
+        if os.path.exists(path):
+            os.unlink(path)
+            removed.append(path)
+    if _systemd_available():
+        run(["systemctl", "daemon-reload"], timeout=60)
+    print(_("Removed: {files}").format(files=", ".join(removed)) if removed else _("There was nothing to remove."))
+    if os.path.exists(ALERT_ENV) and ask_yes(_("Also delete the saved Telegram settings ({path})?").format(path=ALERT_ENV), False):
+        os.unlink(ALERT_ENV)
+        print(_("Deleted {path}.").format(path=ALERT_ENV))
+    return 0
 
 
 # --------------------------------------------------------------------- UI ----
@@ -1618,18 +1937,35 @@ def parse_args():
     ap.add_argument("--json", action="store_true", help=_("with --check: print the result as JSON"))
     ap.add_argument("-q", "--quiet", action="store_true", help=_(
         "with --check: print only warnings and problems (nothing if all is well)"))
+    ap.add_argument("--notify", action="store_true", help=_(
+        "with --check: send a Telegram message when there is a problem (and when it recovers)"))
+    ap.add_argument("--setup-alerts", action="store_true", help=_(
+        "interactive setup of the Telegram bot and the periodic check (needs root)"))
+    ap.add_argument("--remove-alerts", action="store_true", help=_("remove the periodic check set up by --setup-alerts"))
+    ap.add_argument("--interval", metavar="TIME", help=_("with --setup-alerts: check interval, e.g. 30m, 1h, 6h"))
+    ap.add_argument("--notify-warnings", action="store_true", help=_("with --setup-alerts: notify on warnings too"))
     ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
     return ap.parse_args()
 
 
 def main():
+    if "--notify" in sys.argv:
+        load_alert_env()
     args = parse_args()
+    if args.notify:
+        args.check = True
+    if args.remove_alerts:
+        sys.exit(remove_alerts(args))
+    if args.setup_alerts and os.geteuid() != 0:
+        sys.exit(_("Setting up alerts needs root. Run it with sudo."))
     if not shutil.which("docker"):
         msg = _("Docker is not installed or not in PATH.")
         if args.check:
             print(msg, file=sys.stderr)
             sys.exit(3)
         sys.exit(msg)
+    if args.setup_alerts:
+        sys.exit(setup_alerts(args))
     if args.check:
         try:
             configure(args)

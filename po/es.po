@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 22:04+0200\n"
+"POT-Creation-Date: 2026-10-17 22:14+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -380,6 +380,144 @@ msgstr "Sin errores en los logs de los últimos 10 min"
 msgid "HTTPS certificates valid ({n})"
 msgstr "Certificados HTTPS válidos ({n})"
 
+msgid ""
+"Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Run: "
+"sudo caddy-tui --setup-alerts"
+msgstr ""
+"Telegram no está configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). "
+"Ejecuta: sudo caddy-tui --setup-alerts"
+
+#, python-brace-format
+msgid "{host}: Caddy is OK again."
+msgstr "{host}: Caddy vuelve a estar bien."
+
+msgid "Caddy check failed."
+msgstr "La comprobación de Caddy ha fallado."
+
+#, python-brace-format
+msgid "Could not send the Telegram message: {error}"
+msgstr "No se pudo enviar el mensaje de Telegram: {error}"
+
+msgid " [Y/n] "
+msgstr " [S/n] "
+
+msgid " [y/N] "
+msgstr " [s/N] "
+
+msgid "Setting up alerts needs root. Run it with sudo."
+msgstr "Configurar las alertas necesita root. Ejecútalo con sudo."
+
+msgid "== caddy-tui alerts setup =="
+msgstr "== Configuración de alertas de caddy-tui =="
+
+#, python-brace-format
+msgid "Caddy container: {name}"
+msgstr "Contenedor de Caddy: {name}"
+
+msgid "Telegram bot token (create one with @BotFather): "
+msgstr "Token del bot de Telegram (créalo con @BotFather): "
+
+#, python-brace-format
+msgid "The bot token is not valid: {error}"
+msgstr "El token del bot no es válido: {error}"
+
+msgid "No valid Telegram bot token."
+msgstr "No hay un token de bot de Telegram válido."
+
+#, python-brace-format
+msgid "Bot: @{username}"
+msgstr "Bot: @{username}"
+
+msgid "Telegram chat id (empty = detect it)"
+msgstr "Id del chat de Telegram (vacío = detectarlo)"
+
+#, python-brace-format
+msgid "Send any message to @{username} on Telegram now, then press Enter."
+msgstr "Envía ahora cualquier mensaje a @{username} en Telegram y pulsa Enter."
+
+#, python-brace-format
+msgid "Could not read the bot updates: {error}"
+msgstr "No se pudieron leer los mensajes del bot: {error}"
+
+msgid ""
+"The bot has not received any message yet. Write to it and run the setup "
+"again."
+msgstr ""
+"El bot aún no ha recibido ningún mensaje. Escríbele y vuelve a ejecutar la "
+"configuración."
+
+#, python-brace-format
+msgid "Found chat: {title} ({id})"
+msgstr "Chat encontrado: {title} ({id})"
+
+msgid "Send the alerts to this chat?"
+msgstr "¿Enviar las alertas a este chat?"
+
+msgid "Cancelled."
+msgstr "Cancelado."
+
+msgid "Check interval (e.g. 30m, 1h, 6h)"
+msgstr "Intervalo de comprobación (p. ej. 30m, 1h, 6h)"
+
+msgid "Invalid interval. Use between 5 minutes and 24 hours, e.g. 30m, 1h, 6h."
+msgstr ""
+"Intervalo no válido. Usa entre 5 minutos y 24 horas, p. ej. 30m, 1h, 6h."
+
+msgid "Also notify on warnings (not only on problems)?"
+msgstr "¿Avisar también de los avisos (no solo de los problemas)?"
+
+#, python-brace-format
+msgid "Saved {path} (mode 600)."
+msgstr "Guardado {path} (modo 600)."
+
+#, python-brace-format
+msgid "systemctl failed: {error}"
+msgstr "systemctl ha fallado: {error}"
+
+#, python-brace-format
+msgid ""
+"systemd timer enabled: every {minutes} min. See it with: systemctl list-"
+"timers {unit}.timer"
+msgstr ""
+"Timer de systemd activado: cada {minutes} min. Compruébalo con: systemctl "
+"list-timers {unit}.timer"
+
+#, python-brace-format
+msgid "No systemd found: cron job written to {path} (every {minutes} min)."
+msgstr "No hay systemd: tarea de cron escrita en {path} (cada {minutes} min)."
+
+#, python-brace-format
+msgid ""
+"{host}: caddy-tui alerts are set up. You will be notified here when the "
+"Caddy check finds problems."
+msgstr ""
+"{host}: las alertas de caddy-tui están configuradas. Aquí recibirás un aviso "
+"cuando la comprobación de Caddy encuentre problemas."
+
+msgid "Test message sent to Telegram."
+msgstr "Mensaje de prueba enviado a Telegram."
+
+msgid "First check:"
+msgstr "Primera comprobación:"
+
+msgid "Removing alerts needs root. Run it with sudo."
+msgstr "Quitar las alertas necesita root. Ejecútalo con sudo."
+
+#, python-brace-format
+msgid "Removed: {files}"
+msgstr "Eliminado: {files}"
+
+msgid "There was nothing to remove."
+msgstr "No había nada que eliminar."
+
+#, python-brace-format
+msgid "Also delete the saved Telegram settings ({path})?"
+msgstr "¿Borrar también la configuración de Telegram guardada ({path})?"
+
+#, python-brace-format
+msgid "Deleted {path}."
+msgstr "Borrado {path}."
+
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
 
@@ -401,12 +539,6 @@ msgstr "  (activo {time})"
 
 msgid "↑/↓ PgUp/PgDn scroll output"
 msgstr "↑/↓ PgUp/PgDn desplazar salida"
-
-msgid " [Y/n] "
-msgstr " [S/n] "
-
-msgid " [y/N] "
-msgstr " [s/N] "
 
 msgid "↑/↓ choose · Enter accept · Esc cancel"
 msgstr "↑/↓ elegir · Enter aceptar · Esc cancelar"
@@ -840,6 +972,28 @@ msgstr "con --check: imprime el resultado en JSON"
 
 msgid "with --check: print only warnings and problems (nothing if all is well)"
 msgstr "con --check: imprime solo avisos y problemas (nada si todo va bien)"
+
+msgid ""
+"with --check: send a Telegram message when there is a problem (and when it "
+"recovers)"
+msgstr ""
+"con --check: envía un mensaje de Telegram si hay un problema (y cuando se "
+"recupera)"
+
+msgid ""
+"interactive setup of the Telegram bot and the periodic check (needs root)"
+msgstr ""
+"configuración guiada del bot de Telegram y de la comprobación periódica "
+"(necesita root)"
+
+msgid "remove the periodic check set up by --setup-alerts"
+msgstr "quita la comprobación periódica creada por --setup-alerts"
+
+msgid "with --setup-alerts: check interval, e.g. 30m, 1h, 6h"
+msgstr "con --setup-alerts: intervalo de comprobación, p. ej. 30m, 1h, 6h"
+
+msgid "with --setup-alerts: notify on warnings too"
+msgstr "con --setup-alerts: avisar también de los avisos"
 
 msgid "Docker is not installed or not in PATH."
 msgstr "Docker no está instalado o no está en el PATH."

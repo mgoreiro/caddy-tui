@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.3.0" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.4.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -46,6 +46,23 @@ With \fB\-\-check\fR: print the result as JSON.
 .TP
 .BR \-q ", " \-\-quiet
 With \fB\-\-check\fR: print only warnings and problems (nothing if all is well).
+.TP
+.B \-\-notify
+Implies \fB\-\-check\fR. Send a Telegram message when there is a problem (once, again if it
+changes or after 24 hours) and when it recovers. Reads \fI/etc/caddy-tui/alert.env\fR.
+.TP
+.B \-\-setup\-alerts
+Interactive setup (needs root): Telegram bot token and chat, check interval, a systemd service and
+timer (or a cron job), a test message.
+.TP
+.B \-\-remove\-alerts
+Remove what \fB\-\-setup\-alerts\fR created (needs root).
+.TP
+.BI \-\-interval " TIME"
+With \fB\-\-setup\-alerts\fR: check interval (5 minutes to 24 hours, e.g. 30m, 1h).
+.TP
+.B \-\-notify\-warnings
+With \fB\-\-setup\-alerts\fR: notify on warnings too, not only on problems.
 .TP
 .B \-\-version
 Show the version and exit.
@@ -102,6 +119,16 @@ Change the interface language.
 .TP
 .B q
 Quit.
+.SH FILES (ALERTS)
+.TP
+.I /etc/caddy-tui/alert.env
+Telegram token and chat, container and language for the periodic check (mode 600).
+.TP
+.I /var/lib/caddy-tui/alert-state.json
+What was already notified, to avoid repeating alerts.
+.TP
+.I /etc/systemd/system/caddy-tui-check.{service,timer}
+Periodic check (or \fI/etc/cron.d/caddy-tui-check\fR without systemd).
 .SH ENVIRONMENT
 .TP
 .B EDITOR
