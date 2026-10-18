@@ -14,6 +14,7 @@ import json
 import os
 import re
 import stat
+import tarfile
 import tempfile
 import time
 import unittest
@@ -1864,6 +1865,185 @@ class TemplateFlows(unittest.TestCase):
         new = self.current()
         self.assertIn("redir https://other.example.org{uri} temporary", new)
         self.assertIn("# Service edited with caddy-tui", new)
+
+
+class ExportImport(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.src = os.path.join(d, "src")
+        os.makedirs(self.src)
+        for name, text in (("Caddyfile", "{$DOMAIN} {\n\trespond \"hi\"\n}\n"), ("docker-compose.yml", "services: {}\n"),
+                           (".env", "DOMAIN=app.example.com\nSECRET=s3\n")):
+            with open(os.path.join(self.src, name), "w") as f:
+                f.write(text)
+        envs = {"CADDY_TUI_STATE_DIR": d}
+        for p in (mock.patch.dict(os.environ, envs, clear=True), mock.patch.object(c, "CADDYFILE", os.path.join(self.src, "Caddyfile")),
+                  mock.patch.object(c, "COMPOSE", os.path.join(self.src, "docker-compose.yml")),
+                  mock.patch.object(c, "ENVFILE", os.path.join(self.src, ".env")), mock.patch.object(c, "ALERT_ENV", os.path.join(d, "alert.env")),
+                  mock.patch.object(c, "CONTAINER", "caddy"), mock.patch.object(c, "IMAGE", "caddy:2-alpine"),
+                  mock.patch.object(c, "SERVICE", "caddy")):
+            p.start()
+            self.addCleanup(p.stop)
+        self.bundle = os.path.join(d, "export.tar.gz")
+
+    def test_ida_y_vuelta(self):
+        with mock.patch.object(c, "export_certs", return_value=b"CERTS"):
+            manifest = c.build_export(self.bundle, with_certs=True)
+        self.assertEqual(stat.S_IMODE(os.stat(self.bundle).st_mode), 0o600)
+        self.assertEqual(sorted(manifest["files"]), [".env", "Caddyfile", "caddy_data.tar.gz", "docker-compose.yml"])
+        m2, files = c.read_export(self.bundle)
+        self.assertEqual(files["caddy_data.tar.gz"], b"CERTS")
+        self.assertIn(b"DOMAIN=app.example.com", files[".env"])
+        self.assertEqual((m2["image"], m2["container"], m2["host"] != ""), ("caddy:2-alpine", "caddy", True))
+
+    def test_sin_certificados_ni_alertas_por_defecto(self):
+        with open(c.ALERT_ENV, "w") as f:
+            f.write("TELEGRAM_BOT_TOKEN=1:x\n")
+        manifest = c.build_export(self.bundle)
+        self.assertNotIn("caddy_data.tar.gz", manifest["files"])
+        self.assertNotIn("alert.env", manifest["files"])
+        self.assertIn("alert.env", c.build_export(self.bundle + "2", with_alerts=True)["files"])
+
+    def test_sin_compose(self):
+        with mock.patch.object(c, "COMPOSE", ""):
+            self.assertNotIn("docker-compose.yml", c.build_export(self.bundle)["files"])
+
+    def rewrite(self, mutate):
+        """Re-pack the bundle after `mutate(members_dict)`."""
+        c.build_export(self.bundle)
+        with tarfile.open(self.bundle, "r:gz") as tar:
+            members = {m.name: tar.extractfile(m).read() for m in tar.getmembers()}
+        mutate(members)
+        with tarfile.open(self.bundle, "w:gz") as tar:
+            for name, data in members.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+
+    def test_detecta_corrupcion(self):
+        self.rewrite(lambda m: m.update({"Caddyfile": b"tampered"}))
+        with self.assertRaisesRegex(ValueError, "Caddyfile"):
+            c.read_export(self.bundle)
+
+    def test_rechaza_entradas_inesperadas(self):
+        self.rewrite(lambda m: m.update({"../../etc/passwd": b"x"}))
+        with self.assertRaisesRegex(ValueError, "Unexpected entry"):
+            c.read_export(self.bundle)
+
+    def test_sin_manifiesto_o_no_es_un_export(self):
+        self.rewrite(lambda m: m.pop("manifest.json"))
+        with self.assertRaises(ValueError):
+            c.read_export(self.bundle)
+        with open(self.bundle, "w") as f:
+            f.write("not a tar")
+        with self.assertRaisesRegex(ValueError, "Not a caddy-tui export"):
+            c.read_export(self.bundle)
+        with self.assertRaises(ValueError):
+            c.read_export(os.path.join(self.tmp.name, "missing.tar.gz"))
+
+    def test_symlinks_no_se_aceptan(self):
+        c.build_export(self.bundle)
+        with tarfile.open(self.bundle, "a" if False else "w:gz") as tar:
+            info = tarfile.TarInfo("Caddyfile")
+            info.type, info.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            tar.addfile(info)
+        with self.assertRaisesRegex(ValueError, "Unexpected entry"):
+            c.read_export(self.bundle)
+
+
+class ImportFlow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        src = os.path.join(d, "src")
+        os.makedirs(src)
+        for name, text in (("Caddyfile", "{$DOMAIN} {\n\trespond \"hi\"\n}\n"), ("docker-compose.yml", "services: {caddy: {}}\n"),
+                           (".env", "DOMAIN=app.example.com\n")):
+            with open(os.path.join(src, name), "w") as f:
+                f.write(text)
+        self.bundle = os.path.join(d, "x.tar.gz")
+        with mock.patch.object(c, "CADDYFILE", os.path.join(src, "Caddyfile")), mock.patch.object(c, "COMPOSE", os.path.join(src, "docker-compose.yml")), \
+             mock.patch.object(c, "ENVFILE", os.path.join(src, ".env")), mock.patch.object(c, "CONTAINER", "mycaddy"), \
+             mock.patch.object(c, "IMAGE", "caddy:2-alpine"), mock.patch.object(c, "SERVICE", "caddy"), \
+             mock.patch.dict(os.environ, {"CADDY_TUI_STATE_DIR": d}), mock.patch.object(c, "export_certs", return_value=b"CERTS"):
+            c.build_export(self.bundle, with_certs=True)
+        self.dest = os.path.join(d, "dest")
+        self.calls, self.bytes_calls, self.out = [], [], io.StringIO()
+
+    def go(self, compose=True, validate=(True, ""), busy=(), yes=True, answers=(), existing=False, bundle=None):
+        ans = iter(answers)
+        args = argparse.Namespace(dir=self.dest, yes=yes)
+
+        def fake_run(cmd, **k):
+            self.calls.append(cmd)
+            return (0, "cid123\n") if "ps" in cmd else (0, "")
+        patches = [
+            mock.patch.object(c, "native_caddy_running", return_value=False), mock.patch.object(c, "port_in_use", side_effect=lambda p: p in busy),
+            mock.patch.object(c, "compose_available", return_value=compose), mock.patch.object(c, "validate_standalone", return_value=validate),
+            mock.patch.object(c, "inspect_container", return_value={"x": 1} if existing else None),
+            mock.patch.object(c, "container_state_of", return_value=("running", "")), mock.patch.object(c, "run", side_effect=fake_run),
+            mock.patch.object(c, "run_bytes", side_effect=lambda cmd, data=None, **k: (self.bytes_calls.append((cmd, data)), (0, b"", ""))[1]),
+            mock.patch.object(c, "ask_yes", side_effect=lambda *a, **k: next(ans, True)), mock.patch.object(c.time, "sleep"),
+            mock.patch.object(c, "BASE", self.tmp.name),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        with contextlib.redirect_stdout(self.out):
+            return c.import_flow(args, bundle or self.bundle)
+
+    def read(self, name):
+        return slurp(os.path.join(self.dest, name))
+
+    def test_restaura_ficheros_certificados_y_arranca(self):
+        self.assertEqual(self.go(), "mycaddy")
+        self.assertIn("respond", self.read("Caddyfile"))
+        self.assertIn("services:", self.read("docker-compose.yml"))
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.dest, ".env")).st_mode), 0o600)
+        cmd, data = self.bytes_calls[0]
+        self.assertEqual(data, b"CERTS")
+        self.assertIn("--volumes-from", cmd)
+        self.assertIn("cid123", cmd)
+        self.assertIn("create", [x for call in self.calls for x in call])
+        self.assertEqual(self.calls[-1][-2:], ["up", "-d"])
+        self.assertIn("Certificates and ACME account restored", self.out.getvalue())
+
+    def test_valida_con_las_variables_del_env(self):
+        self.go()
+        self.assertEqual(c.validate_standalone.call_args[0][2], {"DOMAIN": "app.example.com"})   # the patched one from go()
+
+    def test_sin_compose_usa_docker_run(self):
+        self.assertEqual(self.go(compose=False), "mycaddy")
+        self.assertFalse(os.path.exists(os.path.join(self.dest, "docker-compose.yml")))
+        self.assertEqual(self.calls[-1][:3], ["docker", "run", "-d"])
+
+    def test_no_pisa_una_carpeta_con_configuracion(self):
+        os.makedirs(self.dest)
+        with open(os.path.join(self.dest, "Caddyfile"), "w") as f:
+            f.write("keep")
+        self.assertIsNone(self.go())
+        self.assertEqual(self.read("Caddyfile"), "keep")
+
+    def test_config_invalida_no_escribe_nada(self):
+        self.assertIsNone(self.go(validate=(False, "boom")))
+        self.assertFalse(os.path.exists(self.dest))
+
+    def test_contenedor_con_el_mismo_nombre(self):
+        self.assertIsNone(self.go(existing=True))
+        self.assertIn("already exists", self.out.getvalue())
+
+    def test_pide_confirmacion_si_no_es_yes(self):
+        self.assertIsNone(self.go(yes=False, answers=(False,)))
+        self.assertFalse(os.path.exists(self.dest))
+
+    def test_export_danado(self):
+        with open(self.bundle, "w") as f:
+            f.write("junk")
+        self.assertIsNone(self.go())
+        self.assertIn("Not a caddy-tui export", self.out.getvalue())
 
 
 class Translations(unittest.TestCase):

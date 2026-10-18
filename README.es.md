@@ -37,6 +37,18 @@ El instalador guiado:
 
 Nunca sobrescribe un `Caddyfile` / `docker-compose.yml` existente y solo funciona de forma interactiva (`--check` y `--notify` siguen saliendo con código 3 si no hay Caddy).
 
+## Llevar la configuración a otro servidor (`--export` / `--import`)
+
+```bash
+caddy-tui --export                      # o `o` en la interfaz: escribe caddy-tui-export-<host>-<fecha>.tar.gz
+caddy-tui --export salida.tar.gz --with-certs --with-alerts
+sudo caddy-tui --import salida.tar.gz   # en la máquina nueva (instala Docker si hace falta)
+```
+
+La exportación contiene tu `Caddyfile`, el `docker-compose.yml`, el `.env` (y, si lo pides, los **certificados y la cuenta ACME** con `--with-certs` —contienen claves privadas— y los **ajustes de alertas** con `--with-alerts`), más un manifiesto con el SHA-256 de cada fichero. El fichero se crea legible solo por ti.
+
+`--import` verifica las sumas de comprobación y rechaza cualquier cosa inesperada dentro del archivo, valida el Caddyfile **antes de escribir nada**, restaura todo en una carpeta nueva (nunca sobre una configuración existente), devuelve los certificados al volumen de datos del contenedor nuevo —así se **sirven los mismos certificados** y no se vuelve a pedir nada a Let's Encrypt—, arranca Caddy y abre la interfaz. Con `-y/--yes` no hace preguntas. Si la exportación traía ajustes de alertas, ejecuta después `sudo caddy-tui --setup-alerts` para recrear la comprobación periódica.
+
 ## Uso
 
 Autodetecta el contenedor

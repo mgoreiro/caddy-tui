@@ -35,6 +35,7 @@ import difflib
 import getpass
 import gettext
 import hashlib
+import io
 import ipaddress
 import json
 import os
@@ -55,7 +56,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -185,6 +186,7 @@ MENU = [
     ("f", N_("Format Caddyfile")),
     ("c", N_("View Caddyfile")),
     ("k", N_("Create backup (Caddyfile+.env)")),
+    ("o", N_("Export configuration")),
     ("u", N_("Undo last change")),
     ("b", N_("Restore backup")),
     ("n", N_("Edit .env")),
@@ -2290,8 +2292,9 @@ def ensure_docker():
     return True
 
 
-def validate_standalone(directory, image="caddy:2-alpine"):
-    rc, out = run(["docker", "run", "--rm", "-v", f"{directory}:/etc/caddy:ro", "-w", "/etc/caddy", image,
+def validate_standalone(directory, image="caddy:2-alpine", env=None):
+    envs = [x for k, v in (env or {}).items() for x in ("-e", f"{k}={v}")]
+    rc, out = run(["docker", "run", "--rm", *envs, "-v", f"{directory}:/etc/caddy:ro", "-w", "/etc/caddy", image,
                    "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"], timeout=180)
     return rc == 0, pretty_logs(out)
 
@@ -2404,6 +2407,185 @@ def container_state_of(name):
         return "missing", ""
     state, __, started = out.partition("|")
     return state, started
+
+
+# ------------------------------------------------------- export / import ---
+EXPORT_FORMAT = 1
+EXPORT_MEMBERS = ("manifest.json", "Caddyfile", "docker-compose.yml", ".env", "bans.json", "alert.env", "caddy_data.tar.gz")
+EXPORT_MAX_BYTES = 300 * 1024 * 1024
+
+
+def run_bytes(cmd, data=None, timeout=300):
+    """Like run() but binary: -> (rc, stdout bytes, stderr text)."""
+    try:
+        p = subprocess.run(cmd, input=data, capture_output=True, timeout=timeout, cwd=BASE)
+        return p.returncode, p.stdout, p.stderr.decode("utf-8", "replace").strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return 1, b"", str(e)
+
+
+def default_export_name():
+    return f"caddy-tui-export-{socket.gethostname()}-{datetime.now():%Y%m%d-%H%M%S}.tar.gz"
+
+
+def export_certs():
+    """The container's Caddy data directory (certificates, ACME account) as tar.gz bytes, or None."""
+    rc, data, err = run_bytes(["docker", "run", "--rm", "--volumes-from", CONTAINER, IMAGE, "sh", "-c",
+                               'tar czf - -C "${XDG_DATA_HOME:-/data}" .'], timeout=300)
+    return data if rc == 0 and data else None
+
+
+def build_export(path, with_certs=False, with_alerts=False):
+    """Write the export bundle (tar.gz, mode 600). -> manifest dict."""
+    import hashlib
+    files = {}
+    sources = [("Caddyfile", CADDYFILE)]
+    if COMPOSE and os.path.isfile(COMPOSE):
+        sources.append(("docker-compose.yml", COMPOSE))
+    sources += [(".env", ENVFILE), ("bans.json", bans_path())]
+    if with_alerts:
+        sources.append(("alert.env", ALERT_ENV))
+    for name, src in sources:
+        try:
+            with open(src, "rb") as f:
+                files[name] = f.read()
+        except OSError:
+            continue
+    if with_certs:
+        certs = export_certs()
+        if certs:
+            files["caddy_data.tar.gz"] = certs
+    manifest = {"format": EXPORT_FORMAT, "tool": __version__, "created": datetime.now().isoformat(timespec="seconds"),
+                "host": socket.gethostname(), "container": CONTAINER, "image": IMAGE, "service": SERVICE,
+                "compose": bool(COMPOSE), "files": {n: {"sha256": hashlib.sha256(b).hexdigest(), "size": len(b)} for n, b in files.items()}}
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as raw, tarfile.open(fileobj=raw, mode="w:gz") as tar:
+        for name, data in [("manifest.json", json.dumps(manifest, indent=1).encode())] + list(files.items()):
+            info = tarfile.TarInfo(name)
+            info.size, info.mtime, info.mode = len(data), int(time.time()), 0o600
+            tar.addfile(info, io.BytesIO(data))
+    os.chmod(path, 0o600)
+    return manifest
+
+
+def read_export(path):
+    """Read and verify a bundle. -> (manifest, {name: bytes}). Raises ValueError with a readable reason."""
+    import hashlib
+    members, total = {}, 0
+    try:
+        with tarfile.open(path, "r:gz") as tar:
+            for m in tar.getmembers():
+                if m.name not in EXPORT_MEMBERS or not m.isfile():
+                    raise ValueError(_("Unexpected entry in the file: {name}").format(name=m.name))
+                total += m.size
+                if total > EXPORT_MAX_BYTES:
+                    raise ValueError(_("The file is too big."))
+                members[m.name] = tar.extractfile(m).read()
+    except (tarfile.TarError, OSError, EOFError) as e:
+        raise ValueError(_("Not a caddy-tui export: {error}").format(error=e))
+    try:
+        manifest = json.loads(members.pop("manifest.json"))
+        assert manifest["format"] == EXPORT_FORMAT
+    except (KeyError, ValueError, AssertionError):
+        raise ValueError(_("Not a caddy-tui export (missing or unsupported manifest)."))
+    for name, info in manifest.get("files", {}).items():
+        data = members.get(name)
+        if data is None or hashlib.sha256(data).hexdigest() != info.get("sha256"):
+            raise ValueError(_("{name} is missing or corrupted in the export.").format(name=name))
+    if "Caddyfile" not in members:
+        raise ValueError(_("The export has no Caddyfile."))
+    return manifest, members
+
+
+def import_flow(args, bundle):
+    """Restore an export into a new Caddy in Docker. -> container name, or None."""
+    global BASE
+    try:
+        manifest, files = read_export(bundle)
+    except ValueError as e:
+        print("✘ " + str(e))
+        return None
+    print(_("== caddy-tui: restore an export =="))
+    print(_("Export from {host} ({date}), caddy-tui {version}; image {image}.").format(
+        host=manifest.get("host", "?"), date=manifest.get("created", "?"), version=manifest.get("tool", "?"), image=manifest.get("image", "?")))
+    print(_("Contains: {files}").format(files=", ".join(sorted(files))))
+    yes = getattr(args, "yes", False)
+    if native_caddy_running() and not yes and not ask_yes(_("A Caddy that is not in Docker is running on this machine. Continue anyway?"), False):
+        return None
+    default_dir = "/opt/caddy" if os.geteuid() == 0 else os.path.join(os.path.expanduser("~"), "caddy")
+    directory = os.path.abspath(args.dir or (default_dir if yes else ask_line(_("Folder for the configuration"), default_dir)))
+    if any(os.path.exists(os.path.join(directory, f)) for f in ("Caddyfile", "docker-compose.yml")):
+        print(_("{path} already contains a Caddyfile or docker-compose.yml. Choose another folder.").format(path=directory))
+        return None
+    busy = [p for p in (80, 443) if port_in_use(p)]
+    if busy and not yes and not ask_yes(_("Ports in use: {ports}").format(ports=", ".join(map(str, busy))) + " " + _("Continue anyway?"), False):
+        return None
+    if not yes and not ask_yes(_("Restore it into {path} and start Caddy?").format(path=directory), True):
+        return None
+
+    image = manifest.get("image") or "caddy:2-alpine"
+    env_text = files.get(".env", b"").decode("utf-8", "replace")
+    env = {k.strip(): v.strip().strip("\"'") for k, v in (l.split("=", 1) for l in env_text.splitlines()
+                                                         if "=" in l and not l.lstrip().startswith("#"))}
+    caddyfile = files["Caddyfile"].decode("utf-8")
+    needed = dict(referenced_vars(caddyfile))
+    val_env = {n: env[n] for n in needed if n in env}
+    val_env.update({n: "example.com" for n, has_default in needed.items() if n not in val_env and not has_default})
+    with tempfile.TemporaryDirectory() as tmp:                      # validate before touching the destination
+        with open(os.path.join(tmp, "Caddyfile"), "w", encoding="utf-8") as f:
+            f.write(caddyfile)
+        print(_("Validating the configuration (pulls the Caddy image the first time)..."))
+        ok, out = validate_standalone(tmp, image, val_env)
+    if not ok:
+        print("✘ " + _("The configuration in the export is NOT valid") + "\n" + out)
+        return None
+
+    os.makedirs(directory, exist_ok=True)
+    compose_text = files.get("docker-compose.yml")
+    use_compose = compose_available()
+    if compose_text is None and use_compose:
+        compose_text = render_install_compose().encode()
+    for name, mode in (("Caddyfile", 0o644), (".env", 0o600), ("docker-compose.yml", 0o644)):
+        data = files.get(name) if name != "docker-compose.yml" else compose_text
+        if data is not None and (name != "docker-compose.yml" or use_compose):
+            with open(os.path.join(directory, name), "wb") as f:
+                f.write(data)
+            os.chmod(os.path.join(directory, name), mode)
+    BASE = directory
+    name = manifest.get("container") or INSTALL_CONTAINER
+    if inspect_container(name):
+        print("⚠ " + _("A container called '{name}' already exists; remove it or restore on another machine.").format(name=name))
+        return None
+    if not use_compose:
+        print("⚠ " + _("docker compose v2 is not available: Caddy will run as a plain container (without the certificates, if any)."))
+        rc, out = run(docker_run_command(directory, 80, 443, name), cwd=directory, timeout=600)
+    else:
+        cf = os.path.join(directory, "docker-compose.yml")
+        rc, out = run(["docker", "compose", "-f", cf, "create"], cwd=directory, timeout=600)
+        if rc == 0 and "caddy_data.tar.gz" in files:
+            rc2, cid = run(["docker", "compose", "-f", cf, "ps", "-aq", manifest.get("service") or "caddy"], cwd=directory, timeout=60)
+            rc3, __, err = run_bytes(["docker", "run", "--rm", "-i", "--volumes-from", cid.split()[0] if cid.split() else "", image, "sh", "-c",
+                                       'tar xzf - -C "${XDG_DATA_HOME:-/data}"'], data=files["caddy_data.tar.gz"], timeout=300)
+            print(("✔ " + _("Certificates and ACME account restored.")) if rc2 == 0 and rc3 == 0
+                  else "⚠ " + _("Could not restore the certificates: {error}").format(error=err))
+        if rc == 0:
+            rc, out = run(["docker", "compose", "-f", cf, "up", "-d"], cwd=directory, timeout=600)
+    if rc != 0:
+        print("✘ " + _("Could not start Caddy:") + "\n" + "\n".join(out.splitlines()[-10:]))
+        return None
+    for __ in range(15):
+        state, __ = container_state_of(name)
+        if state == "running":
+            break
+        time.sleep(1)
+    else:
+        rc, logs = run(["docker", "logs", "--tail", "15", name], timeout=20)
+        print("✘ " + _("Caddy did not stay running:") + "\n" + logs)
+        return None
+    print("✔ " + _("Caddy is running in container '{name}' (configuration in {path}).").format(name=name, path=directory))
+    if "alert.env" in files or "bans.json" in files:
+        print(_("The export also had alerts / bans settings. Run: sudo caddy-tui --setup-alerts to set the periodic check up again."))
+    return name
 
 
 # --------------------------------------------------------------------- UI ----
@@ -3457,6 +3639,33 @@ class App:
                   + ("\n" + _("Previous image: {id}. To roll back: docker tag {id} {ref} and recreate the container.").format(
                       id=old_id, ref=info["ref"]) if old_id else ""))
 
+    def act_export(self):
+        fields = [
+            dict(key="path", label=_("Save to"), kind="text", value=os.path.join(os.getcwd(), default_export_name()),
+                 hint=_("The file holds your .env: it is created readable only by you")),
+            dict(key="certs", label=_("Include certificates"), kind="bool", value=True,
+                 hint=_("Avoids asking Let's Encrypt again on the new server. Contains private keys!")),
+            dict(key="alerts", label=_("Include the alerts settings"), kind="bool", value=False,
+                 hint=_("Telegram token and chat (alert.env)")),
+        ]
+
+        def check(v):
+            path = v["path"].strip()
+            if not path or os.path.isdir(path) or not os.path.isdir(os.path.dirname(os.path.abspath(path))):
+                return _("Enter a file path inside an existing folder")
+            if os.path.exists(path):
+                return _("That file already exists")
+            return None
+        v = self.form(_("Export the configuration"), fields, check)
+        if v is None:
+            self.show(_("Export"), _("Cancelled. Nothing was changed."))
+            return
+        self.busy(_("Exporting..."))
+        path = os.path.abspath(v["path"].strip())
+        manifest = build_export(path, v["certs"], v["alerts"])
+        self.show(_("Export"), "✔ " + _("Exported to {path} ({size} KB).\nContains: {files}\nOn the new machine: caddy-tui --import {name}").format(
+            path=path, size=max(1, os.path.getsize(path) // 1024), files=", ".join(sorted(manifest["files"])), name=os.path.basename(path)))
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -3469,7 +3678,7 @@ class App:
         actions = {
             "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "y": self.act_image, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
-            "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "n": self.act_env,
+            "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "o": self.act_export, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),
             "r": lambda: self.act_compose(_("Restart"), "restart", SERVICE, confirm=_("Restart Caddy? There will be a brief outage.")),
         }
@@ -3535,6 +3744,12 @@ def parse_args():
     ap.add_argument("--ban-time", metavar="TIME", help=_("with --auto-block: ban length, e.g. 24h, 7d, 0 = permanent (default 24h)"))
     ap.add_argument("--window", metavar="TIME", help=_("with --auto-block: how far back to look in the log (default 15m)"))
     ap.add_argument("--dry-run", action="store_true", help=_("with --auto-block: show what would be banned, change nothing"))
+    ap.add_argument("--export", nargs="?", const="", metavar="FILE", help=_(
+        "write the configuration (Caddyfile, compose, .env...) to a file to move it to another server"))
+    ap.add_argument("--with-certs", action="store_true", help=_("with --export: include the certificates and ACME account (private keys!)"))
+    ap.add_argument("--with-alerts", action="store_true", help=_("with --export: include the alerts settings (Telegram token)"))
+    ap.add_argument("--import", dest="import_file", metavar="FILE", help=_("restore an export made with --export into a new Caddy in Docker"))
+    ap.add_argument("-y", "--yes", action="store_true", help=_("with --import: do not ask for confirmation"))
     ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
     return ap.parse_args()
 
@@ -3550,7 +3765,9 @@ def main():
     if args.setup_alerts and os.geteuid() != 0:
         sys.exit(_("Setting up alerts needs root. Run it with sudo."))
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not (args.check or args.setup_alerts or args.auto_block)
-    if args.install and not interactive:
+    if args.import_file:
+        interactive = interactive or args.yes
+    if (args.install or (args.import_file and not args.yes)) and not interactive:
         sys.exit(_("This program needs an interactive terminal."))
     if not shutil.which("docker"):
         if interactive:
@@ -3562,6 +3779,26 @@ def main():
                 print(msg, file=sys.stderr)
                 sys.exit(3)
             sys.exit(msg)
+    if args.export is not None:
+        try:
+            configure(args)
+        except SystemExit as e:
+            print(e.code, file=sys.stderr)
+            sys.exit(3)
+        path = os.path.abspath(args.export or default_export_name())
+        if os.path.exists(path):
+            sys.exit(_("{path} already exists.").format(path=path))
+        manifest = build_export(path, args.with_certs, args.with_alerts)
+        print("✔ " + _("Exported to {path} ({size} KB).\nContains: {files}\nOn the new machine: caddy-tui --import {name}").format(
+            path=path, size=max(1, os.path.getsize(path) // 1024), files=", ".join(sorted(manifest["files"])), name=os.path.basename(path)))
+        sys.exit(0)
+    if args.import_file:
+        name = import_flow(args, args.import_file)
+        if not name:
+            sys.exit(1)
+        if not interactive or not sys.stdout.isatty():
+            sys.exit(0)
+        args.container, args.dir = name, None
     if args.install:
         name = install_flow(args)
         if not name:
