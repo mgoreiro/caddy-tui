@@ -15,6 +15,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -483,7 +484,7 @@ class SetupAndRemove(unittest.TestCase):
 
     def test_configura_servicio_timer_y_mensaje(self):
         # chat id vacío -> se detecta; Enter; acepta el chat encontrado
-        code, out = self.run_setup(["", "", "y"])
+        code, out = self.run_setup(["", "", "y", "n"])
         self.assertEqual(code, 0)
         env = c.read_env_file(self.env_path)
         self.assertEqual((env["TELEGRAM_BOT_TOKEN"], env["TELEGRAM_CHAT_ID"], env["CADDY_CONTAINER"], env["ALERT_ON_WARNINGS"]),
@@ -495,9 +496,20 @@ class SetupAndRemove(unittest.TestCase):
         self.assertEqual(self.sent[0][0], "99")
         self.assertIn("@mybot", out)
 
+    def test_con_autobloqueo(self):
+        code, __ = self.run_setup(["", "", "y", "y", "7d"])
+        env = c.read_env_file(self.env_path)
+        self.assertEqual((env["AUTOBLOCK"], env["AUTOBLOCK_BAN"], env["AUTOBLOCK_WINDOW"]), ("1", "7d", "30m"))
+        self.assertIn("ExecStartPre=-", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
+
+    def test_sin_autobloqueo_no_hay_variables(self):
+        self.run_setup(["", "", "y", "n"])
+        self.assertNotIn("AUTOBLOCK", c.read_env_file(self.env_path))
+        self.assertNotIn("ExecStartPre", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
+
     def test_sin_systemd_usa_cron(self):
         with mock.patch.object(c, "_systemd_available", return_value=False):
-            self.run_setup(["", "", "y"])
+            self.run_setup(["", "", "y", "n"])
         self.assertIn("*/30 * * * *", slurp(c.CRON_FILE))
         self.assertEqual(os.listdir(self.sysd), [])
 
@@ -512,7 +524,7 @@ class SetupAndRemove(unittest.TestCase):
         self.assertFalse(os.path.exists(self.env_path))
 
     def test_quitar(self):
-        self.run_setup(["", "", "y"])
+        self.run_setup(["", "", "y", "n"])
         with mock.patch("builtins.input", return_value="y"), contextlib.redirect_stdout(io.StringIO()):
             c.remove_alerts(self.args)
         self.assertEqual(os.listdir(self.sysd), [])
@@ -1074,7 +1086,7 @@ class BlocklistFlow(unittest.TestCase):
     def test_desbloquear_desde_el_menu(self):
         self.app.block_ip("203.0.113.5")
         self.app.block_ip("198.51.100.9")
-        seq = iter([1])                                   # options: block, unblock 203..., unblock 198..., cancel
+        seq = iter([2])                                   # options: block, review, unblock 203..., unblock 198..., cancel
         self.app.pick = lambda t, items: next(seq)
         self.app.act_blocklist()
         self.assertEqual(c.get_blocked_ips(self.current()), ["198.51.100.9"])
@@ -1438,6 +1450,263 @@ class InstallFlow(unittest.TestCase):
 
     def test_ya_hay_un_caddy_pregunta_antes(self):
         self.assertIsNone(self.go(lines=(self.dir, ""), existing=[("old", "caddy:2", "running")], yes=(False,)))
+
+
+def ev(ip, status=200, uri="/", ts=1000.0, host="a.example.com"):
+    return (ts, host, "GET", uri, ip, status, 10, 0.01)
+
+
+class Scanners(unittest.TestCase):
+    def test_parse_span(self):
+        for text, secs in (("30m", 1800), ("24h", 86400), ("7d", 604800), ("90", 5400), ("0", 0)):
+            self.assertEqual(c.parse_span(text), secs)
+        for bad in ("", "x", "1w", "-5", "1.5h"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                c.parse_span(bad)
+
+    def test_ips_publicas(self):
+        for ip in ("45.83.64.1", "8.8.8.8", "2001:4860:4860::8888"):
+            self.assertTrue(c.is_public_ip(ip), ip)
+        for ip in ("192.168.1.5", "10.0.0.1", "127.0.0.1", "172.18.0.1", "169.254.1.1", "::1", "fd00::1", "203.0.113.5", "-", "abc"):
+            self.assertFalse(c.is_public_ip(ip), ip)
+
+    def test_rutas_de_escáner_en_tres_distintas(self):
+        events = [ev("45.83.64.7", 404, u) for u in ("/.env", "/wp-login.php", "/phpmyadmin/index.php")]
+        found = c.find_scanners(events)
+        self.assertEqual([o["ip"] for o in found], ["45.83.64.7"])
+        self.assertEqual(found[0]["reasons"][0], ("probes", 3))
+        self.assertEqual(c.find_scanners(events[:2]), [])                     # two probes are not enough
+
+    def test_muchos_errores(self):
+        events = [ev("45.83.64.8", 404, f"/p{i}") for i in range(35)] + [ev("45.83.64.8", 200)]
+        found = c.find_scanners(events)
+        self.assertEqual(found[0]["reasons"][0][0], "errors")
+        self.assertGreaterEqual(found[0]["reasons"][0][2], 90)
+
+    def test_un_usuario_normal_con_algun_404_no_cuenta(self):
+        events = [ev("45.83.64.9", 200, f"/page{i}") for i in range(40)] + [ev("45.83.64.9", 404, "/old")] * 3
+        self.assertEqual(c.find_scanners(events), [])
+
+    def test_fuerza_bruta(self):
+        events = [ev("45.83.64.10", 401, "/login") for __ in range(12)]
+        self.assertEqual(c.find_scanners(events)[0]["reasons"], [("auth", 12)])
+        events += [ev("45.83.64.10", 200, "/ok")] * 5                       # it got in: a real user who forgot the password
+        self.assertEqual(c.find_scanners(events), [])
+
+    def test_nunca_privadas_ni_permitidas_ni_ya_bloqueadas(self):
+        probes = ["/.env", "/wp-login.php", "/phpmyadmin/"]
+        for ip in ("192.168.1.50", "127.0.0.1"):
+            self.assertEqual(c.find_scanners([ev(ip, 404, u) for u in probes]), [], ip)
+        events = [ev("45.83.64.7", 404, u) for u in probes]
+        self.assertEqual(c.find_scanners(events, allow=["45.83.64.0/24"]), [])
+        self.assertEqual(c.find_scanners(events, blocked={"45.83.64.7"}), [])
+
+    def test_ordena_por_actividad(self):
+        events = [ev("45.83.64.1", 404, u) for u in ("/.env", "/.git/config", "/wp-admin/x")]
+        events += [ev("45.83.64.2", 404, u) for u in ("/.env", "/.git/config", "/wp-admin/x")] * 3
+        self.assertEqual([o["ip"] for o in c.find_scanners(events)], ["45.83.64.2", "45.83.64.1"])
+
+    def test_texto_de_motivos(self):
+        text = c.reason_text([("probes", 4), ("errors", 40, 95), ("auth", 11)])
+        self.assertIn("4 scanner paths", text)
+        self.assertIn("95% of 40 requests", text)
+        self.assertIn("11 failed logins", text)
+
+    def test_parse_access_line(self):
+        line = json.dumps({"logger": "http.log.access.log0", "ts": 5.5, "status": 404, "size": 3, "duration": 0.1,
+                           "request": {"host": "h", "method": "GET", "uri": "/x", "client_ip": "1.2.3.4"}})
+        self.assertEqual(c.parse_access_line(line), (5.5, "h", "GET", "/x", "1.2.3.4", 404, 3, 0.1))
+        self.assertIsNone(c.parse_access_line('{"logger": "tls", "msg": "x"}'))
+        self.assertIsNone(c.parse_access_line("not json"))
+
+
+class Bans(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        p = mock.patch.dict(os.environ, {"CADDY_TUI_STATE_DIR": self.tmp.name})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_registro_y_caducidad(self):
+        c.register_ban("1.1.1.1", "scanner", 3600, now=1000)
+        c.register_ban("2.2.2.2", "manual", 0, now=1000)                      # permanent
+        bans = c.load_bans()
+        self.assertEqual(bans["1.1.1.1"]["until"], 4600)
+        self.assertIsNone(bans["2.2.2.2"]["until"])
+        blocked = ["1.1.1.1", "2.2.2.2"]
+        self.assertEqual(c.expired_bans(bans, blocked, now=2000), [])
+        self.assertEqual(c.expired_bans(bans, blocked, now=5000), ["1.1.1.1"])
+        self.assertEqual(c.expired_bans(bans, ["2.2.2.2"], now=5000), [])     # already unblocked by hand
+        c.forget_ban("1.1.1.1")
+        self.assertNotIn("1.1.1.1", c.load_bans())
+
+    def test_sin_fichero(self):
+        self.assertEqual(c.load_bans(), {})
+
+    def test_tiempo_restante(self):
+        self.assertEqual(c.time_left(1000 + 7200, now=1000), "in 2 h")
+        self.assertEqual(c.time_left(1000 + 90, now=1000), "in 1 min")
+        self.assertEqual(c.time_left(1000 + 3 * 86400, now=1000), "in 3 d")
+
+
+class AutoBlockRun(unittest.TestCase):
+    PROBES = ["/.env", "/wp-login.php", "/phpmyadmin/"]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.caddyfile = os.path.join(d, "Caddyfile")
+        with open(self.caddyfile, "w", encoding="utf-8") as f:
+            f.write(BLOCK_BASE)
+        envs = {"CADDY_TUI_STATE_DIR": d}
+        for p in (mock.patch.dict(os.environ, envs, clear=True), mock.patch.object(c, "CADDYFILE", self.caddyfile),
+                  mock.patch.object(c, "BASE", d), mock.patch.object(c, "BACKUPS", os.path.join(d, "bk")),
+                  mock.patch.object(c, "validate_text", return_value=(True, "")),
+                  mock.patch.object(c, "container_state", return_value=("exited", ""))):
+            p.start()
+            self.addCleanup(p.stop)
+        self.args = argparse.Namespace(window=None, ban_time=None, dry_run=False, quiet=False)
+
+    def current(self):
+        with open(self.caddyfile, encoding="utf-8") as f:
+            return f.read()
+
+    def run_it(self, events, **kw):
+        for k, v in kw.items():
+            setattr(self.args, k, v)
+        out = io.StringIO()
+        with mock.patch.object(c, "read_access_events", return_value=events), contextlib.redirect_stdout(out):
+            code = c.run_auto_block(self.args)
+        return code, out.getvalue()
+
+    def scanner(self, ip="45.83.64.7"):
+        return [ev(ip, 404, u) for u in self.PROBES]
+
+    def test_banea_registra_y_guarda(self):
+        code, out = self.run_it(self.scanner())
+        self.assertEqual(code, 0)
+        self.assertEqual(c.get_blocked_ips(self.current()), ["45.83.64.7"])
+        ban = c.load_bans()["45.83.64.7"]
+        self.assertIn("scanner paths", ban["reason"])
+        self.assertAlmostEqual(ban["until"] - ban["ts"], 86400, delta=1)
+        self.assertIn("Banned 45.83.64.7", out)
+
+    def test_dry_run_no_cambia_nada(self):
+        code, out = self.run_it(self.scanner(), dry_run=True)
+        self.assertEqual((code, c.get_blocked_ips(self.current()), c.load_bans()), (0, [], {}))
+        self.assertIn("dry run", out)
+
+    def test_segunda_pasada_no_repite(self):
+        self.run_it(self.scanner())
+        code, out = self.run_it(self.scanner())
+        self.assertEqual(c.get_blocked_ips(self.current()), ["45.83.64.7"])
+        self.assertIn("Nothing to do", out)
+
+    def test_levanta_los_baneos_caducados(self):
+        self.run_it(self.scanner())
+        bans = c.load_bans()
+        bans["45.83.64.7"]["until"] = time.time() - 5
+        c.save_bans(bans)
+        code, out = self.run_it([])
+        self.assertEqual(c.get_blocked_ips(self.current()), [])
+        self.assertNotIn("45.83.64.7", c.load_bans())
+        self.assertIn("Ban lifted: 45.83.64.7", out)
+        self.assertEqual(self.current(), BLOCK_BASE)                           # the file is back to how it was
+
+    def test_baneo_permanente(self):
+        self.run_it(self.scanner(), ban_time="0")
+        self.assertIsNone(c.load_bans()["45.83.64.7"]["until"])
+
+    def test_no_toca_privadas_ni_permitidas(self):
+        os.environ["AUTOBLOCK_ALLOW"] = "45.83.64.0/24"
+        self.run_it(self.scanner() + self.scanner("192.168.1.9"))
+        self.assertEqual(c.get_blocked_ips(self.current()), [])
+
+    def test_limite_por_pasada(self):
+        events = []
+        for n in range(30):
+            events += self.scanner(f"45.83.64.{n + 1}")
+        self.run_it(events)
+        self.assertEqual(len(c.get_blocked_ips(self.current())), 20)
+
+    def test_rango_de_tiempo_invalido(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.run_it([], ban_time="soon")[0], 2)
+
+    def test_si_falla_la_validacion_no_registra_nada(self):
+        with mock.patch.object(c, "validate_text", return_value=(False, "bad")), contextlib.redirect_stderr(io.StringIO()):
+            code, __ = self.run_it(self.scanner())
+        self.assertEqual((code, c.load_bans(), self.current()), (2, {}, BLOCK_BASE))
+
+    def test_avisa_por_telegram(self):
+        sent = []
+        os.environ.update(TELEGRAM_BOT_TOKEN="1:x", TELEGRAM_CHAT_ID="42")
+        with mock.patch.object(c, "telegram_send", side_effect=lambda t, ch, txt: sent.append(txt)):
+            self.run_it(self.scanner())
+        self.assertEqual(len(sent), 1)
+        self.assertIn("45.83.64.7", sent[0])
+
+
+class ReviewFlow(BlocklistFlow):
+    """Interactive ban of a suspicious address (re-uses the BlocklistFlow harness)."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.dict(os.environ, {"CADDY_TUI_STATE_DIR": self.tmp.name})
+        p.start()
+        self.addCleanup(p.stop)
+        self.events = [ev("45.83.64.7", 404, u) for u in ("/.env", "/wp-login.php", "/phpmyadmin/")]
+
+    def test_banea_24h_la_elegida(self):
+        seq = iter([0, 0])                                  # first suspicious address ; "For 24 hours"
+        self.app.pick = lambda t, items: next(seq)
+        self.app.review_suspicious(self.events)
+        self.assertEqual(c.get_blocked_ips(self.current()), ["45.83.64.7"])
+        ban = c.load_bans()["45.83.64.7"]
+        self.assertAlmostEqual(ban["until"] - ban["ts"], 86400, delta=1)
+        self.assertIn("scanner paths", ban["reason"])
+
+    def test_permanente(self):
+        seq = iter([0, 2])
+        self.app.pick = lambda t, items: next(seq)
+        self.app.review_suspicious(self.events)
+        self.assertIsNone(c.load_bans()["45.83.64.7"]["until"])
+
+    def test_sin_sospechosas(self):
+        self.app.pick = lambda t, items: self.fail("nothing to pick")
+        self.app.review_suspicious([ev("45.83.64.7", 200)])
+        self.assertIn("No suspicious", self.shown[-1][1])
+
+    def test_desbloquear_olvida_el_baneo(self):
+        seq = iter([0, 0])
+        self.app.pick = lambda t, items: next(seq)
+        self.app.review_suspicious(self.events)
+        seq2 = iter([2])                                    # block, review, unblock 45.83.64.7
+        self.app.pick = lambda t, items: next(seq2)
+        self.app.act_blocklist()
+        self.assertEqual((c.get_blocked_ips(self.current()), c.load_bans()), ([], {}))
+
+    def test_los_baneos_caducados_se_levantan_al_abrir_la_pantalla(self):
+        seq = iter([0, 0])
+        self.app.pick = lambda t, items: next(seq)
+        self.app.review_suspicious(self.events)
+        bans = c.load_bans()
+        bans["45.83.64.7"]["until"] = time.time() - 1
+        c.save_bans(bans)
+        self.app.pick = lambda t, items: None               # just open and close the screen
+        self.app.act_blocklist()
+        self.assertEqual((c.get_blocked_ips(self.current()), c.load_bans()), ([], {}))
+
+
+class ReviewAndSetup(unittest.TestCase):
+    def test_unidades_con_y_sin_autobloqueo(self):
+        self.assertIn("ExecStartPre=-/usr/bin/caddy-tui --auto-block", c.render_service("/usr/bin/caddy-tui", True))
+        self.assertNotIn("ExecStartPre", c.render_service("/usr/bin/caddy-tui"))
+        cron = c.render_cron("/usr/bin/caddy-tui", 15, True)
+        self.assertIn("/usr/bin/caddy-tui --auto-block >/dev/null 2>&1; /usr/bin/caddy-tui --check", cron)
+        self.assertNotIn("--auto-block", c.render_cron("/usr/bin/caddy-tui", 15))
 
 
 class Translations(unittest.TestCase):

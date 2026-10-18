@@ -546,6 +546,202 @@ def sites_without_blocklist(text):
             if not any(l.strip() == f"import {BLOCK_NAME}" for l in lines[b["start"]:b["end"] + 1])]
 
 
+# ------------------------------------------------- scanners and timed bans ---
+SCAN_PATHS = re.compile(
+    r"(?i)(/\.env\b|/\.git\b|/\.aws\b|/\.ssh\b|/wp-(login|admin|content|includes)|/xmlrpc\.php|/phpmyadmin|/pma/|"
+    r"/phpinfo|/cgi-bin|/boaform|/hnap1|/actuator|/vendor/phpunit|/eval-stdin\.php|/setup\.php|/administrator|"
+    r"/server-status|/manager/html|/\.ds_store|\.sql(\.gz)?$|/config\.(php|json|ya?ml)$)")
+ERROR_STATUSES = (400, 401, 403, 404, 405)
+
+
+def parse_span(text):
+    """'30m' / '24h' / '7d' / '0' -> seconds (0 = no expiry). Raises ValueError."""
+    m = re.fullmatch(r"\s*(\d+)\s*([mhd]?)\s*", text.lower())
+    if not m:
+        raise ValueError(text)
+    return int(m.group(1)) * {"": 60, "m": 60, "h": 3600, "d": 86400}[m.group(2)] if m.group(1) != "0" else 0
+
+
+def is_public_ip(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return not (a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved or a.is_unspecified)
+
+
+def ip_allowed(ip, allow):
+    try:
+        a = ipaddress.ip_address(ip)
+        return any(a in ipaddress.ip_network(n, strict=False) for n in allow)
+    except ValueError:
+        return False
+
+
+def allow_list():
+    return [x for x in re.split(r"[,\s]+", os.environ.get("AUTOBLOCK_ALLOW", "")) if x]
+
+
+def find_scanners(events, allow=(), blocked=(), min_requests=30, error_ratio=0.9, auth_fails=10, scan_hits=3):
+    """Addresses that look like scanners / brute-forcers. -> [{ip, requests, reasons}] busiest first.
+    Reasons: ('probes', n) distinct scanner paths; ('errors', requests, percent) almost only 4xx;
+    ('auth', n) repeated 401/403 with (almost) no success. Private addresses and allow-listed ones are never reported."""
+    by_ip = {}
+    for e in events:
+        by_ip.setdefault(e[4], []).append(e)
+    out = []
+    for ip, ev in by_ip.items():
+        if ip in blocked or not is_public_ip(ip) or ip_allowed(ip, allow):
+            continue
+        n = len(ev)
+        errors = sum(1 for e in ev if e[5] in ERROR_STATUSES)
+        success = sum(1 for e in ev if 200 <= e[5] < 400)
+        fails = sum(1 for e in ev if e[5] in (401, 403))
+        probes = {e[3].split("?")[0].lower() for e in ev if SCAN_PATHS.search(e[3])}
+        reasons = []
+        if len(probes) >= scan_hits:
+            reasons.append(("probes", len(probes)))
+        if n >= min_requests and errors / n >= error_ratio:
+            reasons.append(("errors", n, round(100 * errors / n)))
+        if fails >= auth_fails and success <= 2:
+            reasons.append(("auth", fails))
+        if reasons:
+            out.append({"ip": ip, "requests": n, "reasons": reasons})
+    return sorted(out, key=lambda o: -o["requests"])
+
+
+def reason_text(reasons):
+    parts = []
+    for r in reasons:
+        if r[0] == "probes":
+            parts.append(_("{n} scanner paths probed").format(n=r[1]))
+        elif r[0] == "errors":
+            parts.append(_("{pct}% of {n} requests failed").format(pct=r[2], n=r[1]))
+        elif r[0] == "auth":
+            parts.append(_("{n} failed logins (401/403)").format(n=r[1]))
+    return " · ".join(parts)
+
+
+def bans_path():
+    base = os.environ.get("CADDY_TUI_STATE_DIR") or "/var/lib/caddy-tui"
+    ok = os.access(base, os.W_OK) if os.path.isdir(base) else os.access(os.path.dirname(base), os.W_OK)
+    if not ok:
+        base = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), APP)
+    return os.path.join(base, "bans.json")
+
+
+def load_bans():
+    try:
+        with open(bans_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_bans(bans):
+    try:
+        os.makedirs(os.path.dirname(bans_path()), exist_ok=True)
+        with open(bans_path(), "w", encoding="utf-8") as f:
+            json.dump(bans, f, indent=1)
+    except OSError as e:
+        print(e, file=sys.stderr)
+
+
+def register_ban(ip, reason="", seconds=0, now=None):
+    now = time.time() if now is None else now
+    bans = load_bans()
+    bans[ip] = {"reason": reason, "ts": now, "until": now + seconds if seconds else None}
+    save_bans(bans)
+
+
+def forget_ban(ip):
+    bans = load_bans()
+    if bans.pop(ip, None) is not None:
+        save_bans(bans)
+
+
+def expired_bans(bans, blocked, now=None):
+    now = time.time() if now is None else now
+    return [ip for ip, b in bans.items() if b.get("until") and b["until"] <= now and ip in blocked]
+
+
+def time_left(until, now=None):
+    secs = max(0, until - (time.time() if now is None else now))
+    if secs < 3600:
+        return _("in {n} min").format(n=max(1, int(secs // 60)))
+    if secs < 86400:
+        return _("in {n} h").format(n=int(secs // 3600))
+    return _("in {n} d").format(n=int(secs // 86400))
+
+
+def commit_blocklist(ips, reload=True):
+    """Headless: rewrite the blocklist, validate, back up, save and hot-reload. -> (ok, message)."""
+    with open(CADDYFILE, encoding="utf-8") as f:
+        text = f.read()
+    new = set_blocked_ips(text, ips)
+    if new == text:
+        return True, ""
+    ok, out = validate_text(new)
+    if not ok:
+        return False, out
+    backup_caddyfile()
+    write_in_place(new)
+    if reload and container_state()[0] == "running":
+        rc, out = run(["docker", "exec", CONTAINER, "caddy", "reload", "--config", CONF_IN_CONTAINER,
+                       "--adapter", "caddyfile"], timeout=60)
+        if rc != 0:
+            return False, pretty_logs(out)
+    return True, ""
+
+
+def run_auto_block(args):
+    """Headless fail2ban-style pass: ban scanners seen in the recent logs, lift expired bans. Exit 0 ok, 2 failure."""
+    MAX_PER_RUN, MAX_TOTAL = 20, 500
+    try:
+        window = parse_span(args.window or os.environ.get("AUTOBLOCK_WINDOW") or "15m") or 900
+        ban = parse_span(args.ban_time or os.environ.get("AUTOBLOCK_BAN") or "24h")
+    except ValueError:
+        print(_("Invalid time span. Use e.g. 15m, 24h, 7d."), file=sys.stderr)
+        return 2
+    with open(CADDYFILE, encoding="utf-8") as f:
+        blocked = get_blocked_ips(f.read())
+    bans, now = load_bans(), time.time()
+    lifted = expired_bans(bans, blocked, now)
+    offenders = find_scanners(read_access_events(f"{max(1, window // 60)}m"), allow=allow_list(),
+                              blocked=set(blocked))[:MAX_PER_RUN]
+    keep = [ip for ip in blocked if ip not in lifted]
+    if len(keep) + len(offenders) > MAX_TOTAL:
+        print(_("The blocklist is too long (over {n}); not adding more automatically.").format(n=MAX_TOTAL), file=sys.stderr)
+        offenders = []
+    lines = [_("Banned {ip}: {why}").format(ip=o["ip"], why=reason_text(o["reasons"])) for o in offenders]
+    lines += [_("Ban lifted: {ip}").format(ip=ip) for ip in lifted]
+    if not lines:
+        if not args.quiet:
+            print("✔ " + _("Nothing to do."))
+        return 0
+    if args.dry_run:
+        print("\n".join([_("(dry run, nothing changed)")] + lines))
+        return 0
+    ok, out = commit_blocklist(keep + [o["ip"] for o in offenders])
+    if not ok:
+        print("✘ " + _("Could not update the blocklist:") + "\n" + out, file=sys.stderr)
+        return 2
+    for ip in lifted:
+        forget_ban(ip)
+    for o in offenders:
+        register_ban(o["ip"], reason_text(o["reasons"]), ban, now)
+    print("\n".join(lines))
+    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    if token and chat and offenders:
+        try:
+            telegram_send(token, chat, "🛡 " + socket.gethostname() + ": " + _("Caddy blocked {n} address(es).").format(n=len(offenders))
+                          + "\n\n" + "\n".join(lines))
+        except RuntimeError as e:
+            print(_("Could not send the Telegram message: {error}").format(error=e), file=sys.stderr)
+    return 0
+
+
 # -------------------------------------------------- services (wizard) ----
 HOST_RE = re.compile(r"^(?:https?://)?[A-Za-z0-9*]([A-Za-z0-9.\-*]*[A-Za-z0-9])?(:\d{1,5})?$|^\{\$[A-Z_]+\}$")
 
@@ -684,6 +880,26 @@ def human_bytes(n):
         n /= 1024
 
 
+def parse_access_line(line):
+    """Caddy JSON access-log line -> (ts, host, method, uri, ip, status, bytes, seconds), or None."""
+    try:
+        j = json.loads(line)
+        if not str(j.get("logger", "")).startswith("http.log.access"):
+            return None
+        r = j.get("request", {})
+        return (float(j.get("ts", time.time())), r.get("host", "-"), r.get("method", "-"), r.get("uri", "-"),
+                r.get("client_ip") or r.get("remote_ip", "-"),
+                int(j.get("status", 0)), int(j.get("size", 0)), float(j.get("duration", 0)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def read_access_events(since="15m"):
+    """Access-log events of the last `since` (docker logs syntax) from the container."""
+    rc, out = run(["docker", "logs", "--since", since, CONTAINER], timeout=60)
+    return [e for e in map(parse_access_line, out.splitlines()) if e] if rc == 0 else []
+
+
 class TrafficFeed:
     """Reads `docker logs -f` in the background and extracts the HTTP accesses."""
 
@@ -699,19 +915,9 @@ class TrafficFeed:
 
     def _read(self):
         for line in self.proc.stdout:
-            try:
-                j = json.loads(line)
-            except ValueError:
-                continue
-            if not str(j.get("logger", "")).startswith("http.log.access"):
-                continue
-            r = j.get("request", {})
-            self.q.put((
-                float(j.get("ts", time.time())),
-                r.get("host", "-"), r.get("method", "-"), r.get("uri", "-"),
-                r.get("client_ip") or r.get("remote_ip", "-"),
-                int(j.get("status", 0)), int(j.get("size", 0)), float(j.get("duration", 0)),
-            ))
+            event = parse_access_line(line)
+            if event:
+                self.q.put(event)
         self.alive = False
 
     def drain(self):
@@ -1363,7 +1569,8 @@ def notify_result(items, code):
         print(e, file=sys.stderr)
 
 
-def render_service(command):
+def render_service(command, auto_block=False):
+    pre = f"ExecStartPre=-{command} --auto-block\n" if auto_block else ""
     return f"""[Unit]
 Description=Check the Caddy container with caddy-tui
 Documentation=man:caddy-tui(1)
@@ -1372,7 +1579,7 @@ Documentation=man:caddy-tui(1)
 Type=oneshot
 EnvironmentFile=-{ALERT_ENV}
 StateDirectory=caddy-tui
-ExecStart={command} --check --quiet --notify
+{pre}ExecStart={command} --check --quiet --notify
 # Exit 1 means warnings only: not a failure of the unit.
 SuccessExitStatus=1
 """
@@ -1399,9 +1606,10 @@ def cron_schedule(minutes):
     return "0 0 * * *" if hours >= 24 else f"0 */{hours} * * *"
 
 
-def render_cron(command, minutes):
+def render_cron(command, minutes, auto_block=False):
+    pre = f"{command} --auto-block >/dev/null 2>&1; " if auto_block else ""
     return (f"# caddy-tui: periodic Caddy check with Telegram alerts\nSHELL=/bin/sh\n"
-            f"{cron_schedule(minutes)} root {command} --check --quiet --notify >/dev/null 2>&1\n")
+            f"{cron_schedule(minutes)} root {pre}{command} --check --quiet --notify >/dev/null 2>&1\n")
 
 
 def ask_line(prompt, default=""):
@@ -1475,17 +1683,26 @@ def setup_alerts(args):
     except ValueError:
         sys.exit(_("Invalid interval. Use between 5 minutes and 24 hours, e.g. 30m, 1h, 6h."))
     on_warn = args.notify_warnings or ask_yes(_("Also notify on warnings (not only on problems)?"), False)
+    auto_block, ban_time = ask_yes(_("Also ban scanners automatically, like fail2ban? (only public addresses; bans expire)"), False), "24h"
+    if auto_block:
+        ban_time = ask_line(_("Ban length (e.g. 24h, 7d; 0 = permanent)"), "24h")
+        try:
+            parse_span(ban_time)
+        except ValueError:
+            sys.exit(_("Invalid time span. Use e.g. 15m, 24h, 7d."))
 
     values = {"TELEGRAM_BOT_TOKEN": token, "TELEGRAM_CHAT_ID": chat, "CADDY_CONTAINER": CONTAINER,
               "CADDY_TUI_LANG": LANG, "ALERT_ON_WARNINGS": "1" if on_warn else "0",
               "CADDY_CADDYFILE": args.caddyfile or "", "CADDY_DIR": args.dir or "",
-              "CADDY_COMPOSE": args.compose or "", "CADDY_SERVICE": args.service or ""}
+              "CADDY_COMPOSE": args.compose or "", "CADDY_SERVICE": args.service or "",
+              "AUTOBLOCK": "1" if auto_block else "", "AUTOBLOCK_BAN": ban_time if auto_block else "",
+              "AUTOBLOCK_WINDOW": f"{minutes}m" if auto_block else ""}
     write_env_file(ALERT_ENV, values)
     print(_("Saved {path} (mode 600).").format(path=ALERT_ENV))
 
     command = _program_command()
     if _systemd_available():
-        for name, text in ((UNIT_NAME + ".service", render_service(command)), (UNIT_NAME + ".timer", render_timer(minutes))):
+        for name, text in ((UNIT_NAME + ".service", render_service(command, auto_block)), (UNIT_NAME + ".timer", render_timer(minutes))):
             with open(os.path.join(SYSTEMD_DIR, name), "w", encoding="utf-8") as f:
                 f.write(text)
         for cmd in (["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", UNIT_NAME + ".timer"]):
@@ -1496,7 +1713,7 @@ def setup_alerts(args):
             minutes=minutes, unit=UNIT_NAME))
     else:
         with open(CRON_FILE, "w", encoding="utf-8") as f:
-            f.write(render_cron(command, minutes))
+            f.write(render_cron(command, minutes, auto_block))
         print(_("No systemd found: cron job written to {path} (every {minutes} min).").format(path=CRON_FILE, minutes=minutes))
 
     host = socket.gethostname()
@@ -2812,8 +3029,8 @@ class App:
         self.show(_("Probe services"), "\n".join(format_items(rows) + ["", summary_line(rows)]))
 
     # -- IP blocklist
-    def block_ip(self, raw):
-        """Validate, confirm and add `raw` (IP or CIDR) to the blocklist."""
+    def block_ip(self, raw, ban_seconds=0, reason=""):
+        """Validate, confirm and add `raw` (IP or CIDR) to the blocklist (optionally for a limited time)."""
         try:
             ip = normalize_network(raw)
         except ValueError:
@@ -2833,16 +3050,35 @@ class App:
         if not self.ask(_("Block {ip}? Its connections will be dropped on every site.").format(ip=ip), True):
             self.show(_("Blocked IPs"), _("Cancelled. Nothing was changed."))
             return
-        self._commit_caddyfile(set_blocked_ips(text, current + [ip]), _("{ip} blocked (previous copy: {path})."),
-                               title=_("Blocked IPs"), ip=ip)
+        if self._commit_caddyfile(set_blocked_ips(text, current + [ip]), _("{ip} blocked (previous copy: {path})."),
+                                  title=_("Blocked IPs"), ip=ip) and (ban_seconds or reason):
+            register_ban(ip, reason, ban_seconds)
 
     def act_blocklist(self):
         with open(CADDYFILE, encoding="utf-8") as f:
             text = f.read()
         ips = get_blocked_ips(text)
+        bans = load_bans()
+        lifted = expired_bans(bans, ips)
+        if lifted:                                   # timed bans that ran out: lift them now
+            ips = [x for x in ips if x not in lifted]
+            if self._commit_caddyfile(set_blocked_ips(text, ips), _("Ban lifted ({n} expired) (previous copy: {path})."),
+                                      title=_("Blocked IPs"), n=len(lifted)):
+                for ip in lifted:
+                    forget_ban(ip)
+            with open(CADDYFILE, encoding="utf-8") as f:
+                text = f.read()
+            ips, bans = get_blocked_ips(text), load_bans()
         missing = sites_without_blocklist(text) if ips else []
-        options = [("block", _("Block an IP or range…"))]
-        options += [("unblock", _("Unblock {ip}").format(ip=ip), ip) for ip in ips]
+
+        def describe(ip):
+            b = bans.get(ip)
+            if not b:
+                return ""
+            extra = ", ".join(x for x in (b.get("reason"), _("lifts {when}").format(when=time_left(b["until"])) if b.get("until") else "") if x)
+            return f"  ({extra})" if extra else ""
+        options = [("block", _("Block an IP or range…")), ("review", _("Review suspicious addresses…"))]
+        options += [("unblock", _("Unblock {ip}").format(ip=ip) + describe(ip), ip) for ip in ips]
         if missing:
             options.append(("sync", _("Re-apply the blocklist to all sites")))
         options.append(("cancel", _("Cancel")))
@@ -2863,13 +3099,36 @@ class App:
             v = self.form(_("Block an IP or range"), fields, check)
             if v is not None:
                 self.block_ip(v["ip"])
+        elif kind == "review":
+            self.review_suspicious()
         elif kind == "unblock":
             ip = options[j][2]
-            self._commit_caddyfile(set_blocked_ips(text, [x for x in ips if x != ip]),
-                                   _("{ip} unblocked (previous copy: {path})."), title=_("Blocked IPs"), ip=ip)
+            if self._commit_caddyfile(set_blocked_ips(text, [x for x in ips if x != ip]),
+                                      _("{ip} unblocked (previous copy: {path})."), title=_("Blocked IPs"), ip=ip):
+                forget_ban(ip)
         else:
             self._commit_caddyfile(set_blocked_ips(text, ips), _("Blocklist re-applied to all sites (previous copy: {path})."),
                                    title=_("Blocked IPs"))
+
+    def review_suspicious(self, events=None):
+        """Look at the recent access log for scanners / brute-forcers and offer to ban one."""
+        self.busy(_("Reading the access log..."))
+        events = read_access_events("30m") if events is None else events
+        with open(CADDYFILE, encoding="utf-8") as f:
+            blocked = set(get_blocked_ips(f.read()))
+        found = find_scanners(events, allow=allow_list(), blocked=blocked)
+        if not found:
+            self.show(_("Blocked IPs"), _("No suspicious addresses in the last 30 minutes."))
+            return
+        i = self.pick(_("Suspicious addresses (last 30 min)"),
+                      [f"{o['ip'].ljust(39)} {o['requests']:>5} req · {reason_text(o['reasons'])}" for o in found])
+        if i is None:
+            return
+        spans = [(_("For 24 hours"), 86400), (_("For 7 days"), 7 * 86400), (_("Permanently"), 0)]
+        j = self.pick(_("Block {ip}").format(ip=found[i]["ip"]), [label for label, __ in spans])
+        if j is None:
+            return
+        self.block_ip(found[i]["ip"], spans[j][1], reason_text(found[i]["reasons"]))
 
     def block_from_monitor(self, feed, window, paused_at):
         now = paused_at or time.time()
@@ -2877,14 +3136,22 @@ class App:
         with open(CADDYFILE, encoding="utf-8") as f:
             blocked = set(get_blocked_ips(f.read()))
         counts, bad = Counter(e[4] for e in ev), Counter(e[4] for e in ev if e[5] >= 400)
+        suspicious = {o["ip"]: o for o in find_scanners(ev, allow=allow_list(), blocked=blocked, min_requests=10)}
         top = [(ip, n) for ip, n in counts.most_common(15) if ip not in blocked and ip != "-"]
+        top.sort(key=lambda t: t[0] not in suspicious)                 # suspicious ones first (stable: busiest first)
         if not top:
             return
-        i = self.pick(_("Block which address?"),
-                      [_("{ip}   {n} requests · {bad} with 4xx/5xx").format(ip=ip.ljust(39), n=n, bad=bad[ip]) for ip, n in top])
+        labels = []
+        for ip, n in top:
+            label = _("{ip}   {n} requests · {bad} with 4xx/5xx").format(ip=ip.ljust(39), n=n, bad=bad[ip])
+            if ip in suspicious:
+                label = "⚠ " + label + " · " + reason_text(suspicious[ip]["reasons"])
+            labels.append(label)
+        i = self.pick(_("Block which address?"), labels)
         self.scr.timeout(500)
         if i is not None:
-            self.block_ip(top[i][0])
+            ip = top[i][0]
+            self.block_ip(ip, 0, reason_text(suspicious[ip]["reasons"]) if ip in suspicious else "")
             self.scr.timeout(500)
 
     def act_image(self):
@@ -3015,12 +3282,17 @@ def parse_args():
     ap.add_argument("--notify-warnings", action="store_true", help=_("with --setup-alerts: notify on warnings too"))
     ap.add_argument("--install", action="store_true", help=_(
         "guided setup of a new Caddy in Docker (installs Docker first if needed)"))
+    ap.add_argument("--auto-block", action="store_true", help=_(
+        "ban scanners seen in the recent access log (and lift expired bans), then exit"))
+    ap.add_argument("--ban-time", metavar="TIME", help=_("with --auto-block: ban length, e.g. 24h, 7d, 0 = permanent (default 24h)"))
+    ap.add_argument("--window", metavar="TIME", help=_("with --auto-block: how far back to look in the log (default 15m)"))
+    ap.add_argument("--dry-run", action="store_true", help=_("with --auto-block: show what would be banned, change nothing"))
     ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
     return ap.parse_args()
 
 
 def main():
-    if "--notify" in sys.argv:
+    if "--notify" in sys.argv or "--auto-block" in sys.argv:
         load_alert_env()
     args = parse_args()
     if args.notify:
@@ -3029,7 +3301,7 @@ def main():
         sys.exit(remove_alerts(args))
     if args.setup_alerts and os.geteuid() != 0:
         sys.exit(_("Setting up alerts needs root. Run it with sudo."))
-    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not (args.check or args.setup_alerts)
+    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not (args.check or args.setup_alerts or args.auto_block)
     if args.install and not interactive:
         sys.exit(_("This program needs an interactive terminal."))
     if not shutil.which("docker"):
@@ -3038,7 +3310,7 @@ def main():
                 sys.exit(1)
         else:
             msg = _("Docker is not installed or not in PATH.")
-            if args.check:
+            if args.check or args.auto_block:
                 print(msg, file=sys.stderr)
                 sys.exit(3)
             sys.exit(msg)
@@ -3049,13 +3321,13 @@ def main():
         args.container, args.dir = name, None
     if args.setup_alerts:
         sys.exit(setup_alerts(args))
-    if args.check:
+    if args.check or args.auto_block:
         try:
             configure(args)
         except SystemExit as e:
             print(e.code, file=sys.stderr)
             sys.exit(3)
-        sys.exit(run_check(args))
+        sys.exit(run_auto_block(args) if args.auto_block else run_check(args))
     if not sys.stdout.isatty():
         sys.exit(_("This program needs an interactive terminal."))
     try:

@@ -25,6 +25,11 @@ caddy-tui (1.6.0) unstable; urgency=medium
     missing, checks the machine (native Caddy, ports 80/443, DNS), writes a
     Caddyfile and docker-compose.yml, validates, starts Caddy and opens the
     interface. Closes the "install from scratch" request.
+  * New: scanner detection and timed bans. [i] > "Review suspicious
+    addresses" and the [b] list of the traffic monitor point out addresses that
+    probe typical scanner paths, fail almost every request or fail many logins,
+    and ban them for 24 h / 7 days / permanently; caddy-tui --auto-block does it
+    unattended (also from --setup-alerts), lifting expired bans.
 
  -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
 

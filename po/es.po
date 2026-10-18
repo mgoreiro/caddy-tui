@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 17:32+0200\n"
+"POT-Creation-Date: 2026-10-18 17:40+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -171,6 +171,64 @@ msgstr "hace {n} h"
 #, python-brace-format
 msgid "{n} d ago"
 msgstr "hace {n} d"
+
+#, python-brace-format
+msgid "{n} scanner paths probed"
+msgstr "{n} rutas típicas de escáner probadas"
+
+#, python-brace-format
+msgid "{pct}% of {n} requests failed"
+msgstr "{pct}% de {n} peticiones fallaron"
+
+#, python-brace-format
+msgid "{n} failed logins (401/403)"
+msgstr "{n} accesos fallidos (401/403)"
+
+#, python-brace-format
+msgid "in {n} min"
+msgstr "en {n} min"
+
+#, python-brace-format
+msgid "in {n} h"
+msgstr "en {n} h"
+
+#, python-brace-format
+msgid "in {n} d"
+msgstr "en {n} d"
+
+msgid "Invalid time span. Use e.g. 15m, 24h, 7d."
+msgstr "Duración no válida. Usa p. ej. 15m, 24h, 7d."
+
+#, python-brace-format
+msgid "The blocklist is too long (over {n}); not adding more automatically."
+msgstr ""
+"La lista de bloqueo es demasiado larga (más de {n}); no se añaden más "
+"automáticamente."
+
+#, python-brace-format
+msgid "Banned {ip}: {why}"
+msgstr "Baneada {ip}: {why}"
+
+#, python-brace-format
+msgid "Ban lifted: {ip}"
+msgstr "Baneo levantado: {ip}"
+
+msgid "Nothing to do."
+msgstr "Nada que hacer."
+
+msgid "(dry run, nothing changed)"
+msgstr "(simulación, no se ha cambiado nada)"
+
+msgid "Could not update the blocklist:"
+msgstr "No se pudo actualizar la lista de bloqueo:"
+
+#, python-brace-format
+msgid "Caddy blocked {n} address(es)."
+msgstr "Caddy ha bloqueado {n} dirección(es)."
+
+#, python-brace-format
+msgid "Could not send the Telegram message: {error}"
+msgstr "No se pudo enviar el mensaje de Telegram: {error}"
 
 msgid "(custom block)"
 msgstr "(bloque a medida)"
@@ -463,10 +521,6 @@ msgstr "{host}: Caddy vuelve a estar bien."
 msgid "Caddy check failed."
 msgstr "La comprobación de Caddy ha fallado."
 
-#, python-brace-format
-msgid "Could not send the Telegram message: {error}"
-msgstr "No se pudo enviar el mensaje de Telegram: {error}"
-
 msgid " [Y/n] "
 msgstr " [S/n] "
 
@@ -534,6 +588,16 @@ msgstr ""
 
 msgid "Also notify on warnings (not only on problems)?"
 msgstr "¿Avisar también de los avisos (no solo de los problemas)?"
+
+msgid ""
+"Also ban scanners automatically, like fail2ban? (only public addresses; bans "
+"expire)"
+msgstr ""
+"¿Banear también automáticamente a los escáneres, como fail2ban? (solo "
+"direcciones públicas; los baneos caducan)"
+
+msgid "Ban length (e.g. 24h, 7d; 0 = permanent)"
+msgstr "Duración del baneo (p. ej. 24h, 7d; 0 = permanente)"
 
 #, python-brace-format
 msgid "Saved {path} (mode 600)."
@@ -1289,8 +1353,19 @@ msgstr "¿Bloquear {ip}? Sus conexiones se cortarán en todos los sitios."
 msgid "{ip} blocked (previous copy: {path})."
 msgstr "{ip} bloqueada (copia anterior: {path})."
 
+#, python-brace-format
+msgid "Ban lifted ({n} expired) (previous copy: {path})."
+msgstr "Baneo levantado ({n} caducados) (copia anterior: {path})."
+
+#, python-brace-format
+msgid "lifts {when}"
+msgstr "se levanta {when}"
+
 msgid "Block an IP or range…"
 msgstr "Bloquear una IP o rango…"
+
+msgid "Review suspicious addresses…"
+msgstr "Revisar direcciones sospechosas…"
 
 #, python-brace-format
 msgid "Unblock {ip}"
@@ -1321,12 +1396,34 @@ msgid "Blocklist re-applied to all sites (previous copy: {path})."
 msgstr ""
 "Lista de bloqueo reaplicada a todos los sitios (copia anterior: {path})."
 
-msgid "Block which address?"
-msgstr "¿Qué dirección bloquear?"
+msgid "Reading the access log..."
+msgstr "Leyendo el log de accesos..."
+
+msgid "No suspicious addresses in the last 30 minutes."
+msgstr "No hay direcciones sospechosas en los últimos 30 minutos."
+
+msgid "Suspicious addresses (last 30 min)"
+msgstr "Direcciones sospechosas (últimos 30 min)"
+
+msgid "For 24 hours"
+msgstr "Durante 24 horas"
+
+msgid "For 7 days"
+msgstr "Durante 7 días"
+
+msgid "Permanently"
+msgstr "Permanentemente"
+
+#, python-brace-format
+msgid "Block {ip}"
+msgstr "Bloquear {ip}"
 
 #, python-brace-format
 msgid "{ip}   {n} requests · {bad} with 4xx/5xx"
 msgstr "{ip}   {n} peticiones · {bad} con 4xx/5xx"
+
+msgid "Block which address?"
+msgstr "¿Qué dirección bloquear?"
 
 msgid "Caddy image"
 msgstr "Imagen de Caddy"
@@ -1486,6 +1583,24 @@ msgid "guided setup of a new Caddy in Docker (installs Docker first if needed)"
 msgstr ""
 "instalación guiada de un Caddy nuevo en Docker (instala antes Docker si hace "
 "falta)"
+
+msgid ""
+"ban scanners seen in the recent access log (and lift expired bans), then exit"
+msgstr ""
+"banea a los escáneres vistos en el log de accesos reciente (y levanta los "
+"baneos caducados) y termina"
+
+msgid ""
+"with --auto-block: ban length, e.g. 24h, 7d, 0 = permanent (default 24h)"
+msgstr ""
+"con --auto-block: duración del baneo, p. ej. 24h, 7d, 0 = permanente (por "
+"defecto 24h)"
+
+msgid "with --auto-block: how far back to look in the log (default 15m)"
+msgstr "con --auto-block: hasta dónde mirar atrás en el log (por defecto 15m)"
+
+msgid "with --auto-block: show what would be banned, change nothing"
+msgstr "con --auto-block: muestra qué se baneará, sin cambiar nada"
 
 msgid "This program needs an interactive terminal."
 msgstr "Este programa necesita un terminal interactivo."

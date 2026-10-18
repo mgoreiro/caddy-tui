@@ -69,6 +69,15 @@ Guided setup of a new Caddy in Docker: installs Docker if needed (apt systems, r
 writes a Caddyfile and docker-compose.yml, validates, starts Caddy and opens the interface. Also offered
 automatically when no Caddy container is found.
 .TP
+.B \-\-auto\-block
+One fail2ban-style pass: ban public addresses that look like scanners or brute-forcers in the recent access log,
+lift expired bans, notify on Telegram if configured, then exit. Options:
+.BI \-\-window " TIME"
+(default 15m),
+.BI \-\-ban\-time " TIME"
+(default 24h, 0 = permanent) and
+.B \-\-dry\-run .
+.TP
 .B \-\-version
 Show the version and exit.
 .SH EXIT STATUS
@@ -149,6 +158,11 @@ What was already notified, to avoid repeating alerts.
 .TP
 .I /etc/systemd/system/caddy-tui-check.{service,timer}
 Periodic check (or \fI/etc/cron.d/caddy-tui-check\fR without systemd).
+.SH FILES (BANS)
+.TP
+.I /var/lib/caddy-tui/bans.json
+Reason and expiry of every ban made by caddy-tui (or \fI~/.local/state/caddy-tui/\fR when not writable).
+The variable AUTOBLOCK_ALLOW (comma separated IPs or CIDR ranges) exempts addresses from automatic bans.
 .SH ENVIRONMENT
 .TP
 .B EDITOR

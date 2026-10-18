@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 17:32+0200\n"
+"POT-Creation-Date: 2026-10-18 17:40+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -166,6 +166,62 @@ msgstr ""
 
 #, python-brace-format
 msgid "{n} d ago"
+msgstr ""
+
+#, python-brace-format
+msgid "{n} scanner paths probed"
+msgstr ""
+
+#, python-brace-format
+msgid "{pct}% of {n} requests failed"
+msgstr ""
+
+#, python-brace-format
+msgid "{n} failed logins (401/403)"
+msgstr ""
+
+#, python-brace-format
+msgid "in {n} min"
+msgstr ""
+
+#, python-brace-format
+msgid "in {n} h"
+msgstr ""
+
+#, python-brace-format
+msgid "in {n} d"
+msgstr ""
+
+msgid "Invalid time span. Use e.g. 15m, 24h, 7d."
+msgstr ""
+
+#, python-brace-format
+msgid "The blocklist is too long (over {n}); not adding more automatically."
+msgstr ""
+
+#, python-brace-format
+msgid "Banned {ip}: {why}"
+msgstr ""
+
+#, python-brace-format
+msgid "Ban lifted: {ip}"
+msgstr ""
+
+msgid "Nothing to do."
+msgstr ""
+
+msgid "(dry run, nothing changed)"
+msgstr ""
+
+msgid "Could not update the blocklist:"
+msgstr ""
+
+#, python-brace-format
+msgid "Caddy blocked {n} address(es)."
+msgstr ""
+
+#, python-brace-format
+msgid "Could not send the Telegram message: {error}"
 msgstr ""
 
 msgid "(custom block)"
@@ -428,10 +484,6 @@ msgstr ""
 msgid "Caddy check failed."
 msgstr ""
 
-#, python-brace-format
-msgid "Could not send the Telegram message: {error}"
-msgstr ""
-
 msgid " [Y/n] "
 msgstr ""
 
@@ -495,6 +547,14 @@ msgid "Invalid interval. Use between 5 minutes and 24 hours, e.g. 30m, 1h, 6h."
 msgstr ""
 
 msgid "Also notify on warnings (not only on problems)?"
+msgstr ""
+
+msgid ""
+"Also ban scanners automatically, like fail2ban? (only public addresses; bans "
+"expire)"
+msgstr ""
+
+msgid "Ban length (e.g. 24h, 7d; 0 = permanent)"
 msgstr ""
 
 #, python-brace-format
@@ -1199,7 +1259,18 @@ msgstr ""
 msgid "{ip} blocked (previous copy: {path})."
 msgstr ""
 
+#, python-brace-format
+msgid "Ban lifted ({n} expired) (previous copy: {path})."
+msgstr ""
+
+#, python-brace-format
+msgid "lifts {when}"
+msgstr ""
+
 msgid "Block an IP or range…"
+msgstr ""
+
+msgid "Review suspicious addresses…"
 msgstr ""
 
 #, python-brace-format
@@ -1230,11 +1301,33 @@ msgstr ""
 msgid "Blocklist re-applied to all sites (previous copy: {path})."
 msgstr ""
 
-msgid "Block which address?"
+msgid "Reading the access log..."
+msgstr ""
+
+msgid "No suspicious addresses in the last 30 minutes."
+msgstr ""
+
+msgid "Suspicious addresses (last 30 min)"
+msgstr ""
+
+msgid "For 24 hours"
+msgstr ""
+
+msgid "For 7 days"
+msgstr ""
+
+msgid "Permanently"
+msgstr ""
+
+#, python-brace-format
+msgid "Block {ip}"
 msgstr ""
 
 #, python-brace-format
 msgid "{ip}   {n} requests · {bad} with 4xx/5xx"
+msgstr ""
+
+msgid "Block which address?"
 msgstr ""
 
 msgid "Caddy image"
@@ -1379,6 +1472,20 @@ msgid "with --setup-alerts: notify on warnings too"
 msgstr ""
 
 msgid "guided setup of a new Caddy in Docker (installs Docker first if needed)"
+msgstr ""
+
+msgid ""
+"ban scanners seen in the recent access log (and lift expired bans), then exit"
+msgstr ""
+
+msgid ""
+"with --auto-block: ban length, e.g. 24h, 7d, 0 = permanent (default 24h)"
+msgstr ""
+
+msgid "with --auto-block: how far back to look in the log (default 15m)"
+msgstr ""
+
+msgid "with --auto-block: show what would be banned, change nothing"
 msgstr ""
 
 msgid "This program needs an interactive terminal."
