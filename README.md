@@ -78,7 +78,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 |-----|--------|
 | `a` | **Add-service wizard**: form (domain, upstream, HTTPS upstream, gzip, security headers, access log, optional user/password). Generates the block, validates it, shows a preview and appends it |
 | `m` | **Manage services**: lists the sites in the Caddyfile and lets you **edit** (with the same form as the wizard when the block is one the wizard could have written, otherwise in your editor, only that block) or **remove** one. Everything is validated in the context of the whole file and backed up first |
-| `i` | **Blocked IPs**: block an IP or a range (CIDR) on every site, unblock, or re-apply the list to all sites. It writes a snippet plus an `import` as the first line of each site, validated and backed up like any other change; blocked connections are dropped (`abort`). Loopback and ranges wider than /8 are refused, and a private (LAN) address asks for an extra confirmation. In the traffic monitor press `b` to pick one of the busiest addresses and block it. New or edited sites keep the protection automatically |
+| `i` | **Blocked IPs**: block an IP or a range (CIDR) on every site, unblock, review suspicious addresses (see *Banning scanners*), or re-apply the list to all sites. It writes a snippet plus an `import` as the first line of each site, validated and backed up like any other change; blocked connections are dropped (`abort`). Loopback and ranges wider than /8 are refused, and a private (LAN) address asks for an extra confirmation. In the traffic monitor press `b` to pick one of the busiest addresses and block it. New or edited sites keep the protection automatically |
 | `y` | **Update the Caddy image**: compares the digest of the image the container runs with the one the registry serves for the same tag (Docker Hub, GHCR, Quay…, anonymous), and offers to **pull it and recreate Caddy**. Before recreating it validates your Caddyfile with the new version, so an incompatible release never takes the site down; it also tells you which image to go back to. Detects an image that is already pulled but not applied. The diagnostics warn when an update is available (result cached for 6 h) |
 | `p` | **Probe services**: requests every named site of the Caddyfile and reports the HTTP status, response time and certificate validity. Two checks per site: *local* (straight to this machine's Caddy with the site's name, certificate verified) and *public* (through DNS like a client; a failure here is only a warning because it can be hairpin NAT). The diagnostics (and so `--check` and the alerts) run the local check too, so a `502` or an expired certificate raises an alert |
 | `t` | **Live traffic monitor**: requests/s, 2xx–5xx codes, latency, graph, top domains and IPs, latest requests (`p` pause, `w` window 1/5/15 min). Needs `log` in the site |
@@ -128,6 +128,15 @@ read-only, so it is safe to schedule:
 Add `--quiet` to print only warnings and problems (nothing if all is well) and `--json` for
 machine-readable output (`status`, `problems`, `warnings`, `checks[]`). These exit codes follow the
 Nagios/Icinga convention, so it also works as a monitoring plugin.
+
+### Banning scanners (`--auto-block`)
+
+Public addresses that look like scanners or brute-forcers can be banned — by hand or automatically, fail2ban-style:
+
+- **What counts as suspicious** (looked at in the recent access log): at least **3 different typical scanner paths** (`/.env`, `/.git`, `/wp-login.php`, `/phpmyadmin`, `/xmlrpc.php`…), or **≥ 90 % failed requests** (4xx) over **30+ requests**, or **10+ failed logins** (401/403) with at most 2 successes. Private/LAN/loopback addresses are never considered, and you can exempt addresses or ranges with `AUTOBLOCK_ALLOW=1.2.3.4,5.6.7.0/24` in `/etc/caddy-tui/alert.env`.
+- **By hand**: in **Blocked IPs** (`i`) choose *Review suspicious addresses…* (last 30 minutes) and ban one for 24 h, 7 days or permanently; in the **traffic monitor** (`b`) the suspicious addresses are listed first, marked with ⚠ and the reason. The list shows why and when each ban lifts, and expired bans are lifted when you open the screen.
+- **Automatically**: `caddy-tui --auto-block` does one pass (`--window 15m`, `--ban-time 24h`, `--dry-run` to preview): bans the offenders (at most 20 per pass; it stops adding if the list passes 500), lifts expired bans, and tells you on Telegram if configured. `sudo caddy-tui --setup-alerts` asks whether to run it on every check.
+- The ban is the same blocklist as before (`abort` on every site), so it is validated, backed up and hot-reloaded; when the last ban lifts, the Caddyfile is back to exactly how it was.
 
 ### Telegram alerts (`--setup-alerts`)
 
