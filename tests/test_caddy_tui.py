@@ -1873,6 +1873,13 @@ class Translations(unittest.TestCase):
         cls.po = {f[:-3]: read_po(os.path.join(HERE, "..", "po", f))
                   for f in os.listdir(os.path.join(HERE, "..", "po")) if f.endswith(".po")}
 
+    def test_la_plantilla_pot_esta_al_dia(self):
+        """po/caddy-tui.pot lists exactly the strings in the source (checked without xgettext, whose output
+        differs between versions, e.g. flags or strings nested in f-strings)."""
+        pot = read_po(os.path.join(HERE, "..", "po", "caddy-tui.pot"))
+        self.assertEqual(sorted(self.ids - set(pot)), [], "run `make pot`: missing from the .pot")
+        self.assertEqual(sorted(set(pot) - self.ids), [], "run `make pot`: obsolete in the .pot")
+
     def test_hay_catalogos(self):
         self.assertIn("es", self.po)
 

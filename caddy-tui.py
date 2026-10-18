@@ -979,14 +979,15 @@ def block_label(lines):
     ups = ", ".join(f"{h}:{p}" for h, p, __ in parse_upstreams("\n".join(lines)))
     parsed = parse_any_block(lines)
     kind = parsed[0] if parsed else None
+    tag = {"redirect": _("redirect"), "maintenance": _("maintenance"), "routes": _("routes")}.get(kind, "")
     if kind == "redirect":
-        text = head + f"  →  {parsed[1]['target']}  [{_('redirect')}]"
+        text = head + f"  →  {parsed[1]['target']}  [{tag}]"
     elif kind == "maintenance":
-        text = head + f"  [{_('maintenance')}]"
+        text = head + f"  [{tag}]"
     else:
         text = head + (f"  →  {ups}" if ups else "")
         if kind == "routes":
-            text += f"  [{_('routes')}]"
+            text += f"  [{tag}]"
     if any(l.strip().startswith(("basic_auth", "basicauth")) for l in lines):
         text += "  [auth]"
     if parsed is None:
