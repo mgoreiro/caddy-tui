@@ -12,7 +12,7 @@ diagnose the usual problems.
 
 No dependencies: just **Python 3.8+** (standard library, `curses`) and **Docker**.
 
-**Contents:** [Install](#install) · [No Caddy yet?](#no-caddy-yet-let-caddy-tui-set-it-up) · [Moving to another server](#moving-to-another-server---export----import) · [Usage](#usage) · [Language](#language) · [Features](#features) · [Monitoring and alerts](#monitoring-and-alerts---check) · [Development](#development) · [Documentation](#documentation)
+**Contents:** [Install](#install) · [No Caddy yet?](#no-caddy-yet-let-caddy-tui-set-it-up) · [Moving to another server](#moving-to-another-server---export----import) · [Usage](#usage) · [Several Caddy](#several-caddy-on-the-same-machine) · [Language](#language) · [Features](#features) · [Monitoring and alerts](#monitoring-and-alerts---check) · [Development](#development) · [Documentation](#documentation)
 
 ## Install
 
@@ -78,10 +78,20 @@ can be forced:
 | `--service` | `CADDY_SERVICE` | Caddy service in the compose file |
 | `--image` | `CADDY_IMAGE` | image used to validate/format |
 | `--lang` | `CADDY_TUI_LANG` | interface language |
+| `--list`, `--all` | | list the Caddy containers · run `--check` / `--auto-block` for all of them |
 | `--check`, `--json`, `-q` | | headless diagnostics (see *Monitoring and alerts*) |
 | `--setup-alerts`, `--remove-alerts`, `--notify`, `--interval` | | Telegram alerts and periodic check |
 
 If the `Caddyfile` belongs to another user (e.g. under `/root/`), run it with `sudo`.
+
+## Several Caddy on the same machine
+
+If there is more than one Caddy container, caddy-tui finds them all (`caddy-tui --list` shows them with their state, image and Caddyfile):
+
+- **Interactive**: at startup you choose one (the last one you used is the default, just press Enter); inside the program the header shows `2/3 Caddy containers · [S] switch` and **`S`** changes to another one without leaving. Everything — diagnostics, wizard, bans, backups, certificates, statistics — then works on that Caddy, with its own `Caddyfile`, compose project and `.env`.
+- **Headless**: `--check`, `--notify` and `--auto-block` accept **`--all`** to run for every container. The output is grouped (`== name ==`), the exit code is the worst one, `--json` returns `{"status": …, "containers": […]}`, and Telegram messages are labelled `host/container`.
+- **Alerts**: `sudo caddy-tui --setup-alerts` asks whether to monitor all of them; if so the timer runs with `--all`.
+- Alert state and scanner bans are kept **per container**, so a ban in one Caddy does not touch another.
 
 ## Language
 
@@ -117,6 +127,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 | `u` | **Undo the last change**: shows the diff against the latest earlier version and restores it (backing up the current one first, so pressing `u` again redoes it) |
 | `k` / `b` | Create / restore a backup (`Caddyfile` + `.env` in `.caddy-backups/`); the list shows how old each one is and how many lines would change, and you see the diff before confirming |
 | `n` | Edit `.env` |
+| `S` | Switch to another Caddy container (when there are several) |
 | `L` | Change language (English / Español) |
 | `q` | Quit |
 

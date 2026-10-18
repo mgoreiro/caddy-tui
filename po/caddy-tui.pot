@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 19:18+0200\n"
+"POT-Creation-Date: 2026-10-18 20:39+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -110,6 +110,9 @@ msgstr ""
 msgid "Quit"
 msgstr ""
 
+msgid "Switch Caddy"
+msgstr ""
+
 #, python-brace-format
 msgid "Command not found: {cmd}"
 msgstr ""
@@ -127,7 +130,8 @@ msgstr ""
 msgid "There are several Caddy containers:"
 msgstr ""
 
-msgid "Choose a number: "
+#, python-brace-format
+msgid "Choose a number [{default}]: "
 msgstr ""
 
 msgid "Invalid selection. Use --container NAME."
@@ -561,6 +565,12 @@ msgstr ""
 msgid "Also notify on warnings (not only on problems)?"
 msgstr ""
 
+#, python-brace-format
+msgid ""
+"There are {n} Caddy containers on this machine. Monitor all of them (not "
+"only {name})?"
+msgstr ""
+
 msgid ""
 "Also ban scanners automatically, like fail2ban? (only public addresses; bans "
 "expire)"
@@ -922,6 +932,10 @@ msgstr ""
 
 #, python-brace-format
 msgid "  (up {time})"
+msgstr ""
+
+#, python-brace-format
+msgid "{i}/{n} Caddy containers · [S] switch"
 msgstr ""
 
 msgid "↑/↓ PgUp/PgDn scroll output"
@@ -1633,6 +1647,20 @@ msgid ""
 "On the new machine: caddy-tui --import {name}"
 msgstr ""
 
+msgid "Only one Caddy container was found."
+msgstr ""
+
+msgid "Choose the Caddy to manage"
+msgstr ""
+
+#, python-brace-format
+msgid "Now managing {name}."
+msgstr ""
+
+#, python-brace-format
+msgid "Caddyfile: {path}"
+msgstr ""
+
 msgid "Language"
 msgstr ""
 
@@ -1738,6 +1766,14 @@ msgid "restore an export made with --export into a new Caddy in Docker"
 msgstr ""
 
 msgid "with --import: do not ask for confirmation"
+msgstr ""
+
+msgid ""
+"with --check / --auto-block: run for every Caddy container on this machine "
+"(exit code = the worst one)"
+msgstr ""
+
+msgid "list the Caddy containers found on this machine and exit"
 msgstr ""
 
 msgid "This program needs an interactive terminal."

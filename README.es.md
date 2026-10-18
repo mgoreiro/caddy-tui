@@ -12,7 +12,7 @@ ver el tráfico en vivo y diagnosticar los problemas típicos.
 
 Sin dependencias: solo **Python 3.8+** (librería estándar, `curses`) y **Docker**.
 
-**Contenido:** [Instalación](#instalación) · [¿Aún no tienes Caddy?](#aún-no-tienes-caddy-caddy-tui-lo-instala) · [Llevar la configuración a otro servidor](#llevar-la-configuración-a-otro-servidor---export----import) · [Uso](#uso) · [Idioma](#idioma) · [Funciones](#funciones) · [Monitorización y alertas](#monitorización-y-alertas---check) · [Desarrollo](#desarrollo) · [Documentación](#documentación)
+**Contenido:** [Instalación](#instalación) · [¿Aún no tienes Caddy?](#aún-no-tienes-caddy-caddy-tui-lo-instala) · [Llevar la configuración a otro servidor](#llevar-la-configuración-a-otro-servidor---export----import) · [Uso](#uso) · [Varios Caddy](#varios-caddy-en-la-misma-máquina) · [Idioma](#idioma) · [Funciones](#funciones) · [Monitorización y alertas](#monitorización-y-alertas---check) · [Desarrollo](#desarrollo) · [Documentación](#documentación)
 
 ## Instalación
 
@@ -80,6 +80,15 @@ de Caddy y de él deduce la imagen, el `Caddyfile` montado y el proyecto/servici
 
 Si el `Caddyfile` pertenece a otro usuario (por ejemplo `/root/...`), ejecútalo con `sudo`.
 
+## Varios Caddy en la misma máquina
+
+Si hay más de un contenedor de Caddy, caddy-tui los encuentra todos (`caddy-tui --list` los muestra con su estado, imagen y Caddyfile):
+
+- **Interactivo**: al arrancar eliges uno (el último que usaste es el predeterminado, basta pulsar Enter); dentro del programa la cabecera muestra `2/3 contenedores de Caddy · [S] cambiar` y **`S`** cambia a otro sin salir. Todo —diagnóstico, asistente, baneos, copias, certificados, estadísticas— pasa a trabajar sobre ese Caddy, con su propio `Caddyfile`, proyecto de compose y `.env`.
+- **Sin interfaz**: `--check`, `--notify` y `--auto-block` aceptan **`--all`** para ejecutarse en todos. La salida va agrupada (`== nombre ==`), el código de salida es el del peor, `--json` devuelve `{"status": …, "containers": […]}` y los mensajes de Telegram se etiquetan `equipo/contenedor`.
+- **Alertas**: `sudo caddy-tui --setup-alerts` pregunta si quieres vigilarlos todos; si es así el timer se ejecuta con `--all`.
+- El estado de las alertas y los baneos de escáneres se guardan **por contenedor**, así que un baneo en un Caddy no afecta a otro.
+
 ## Idioma
 
 La interfaz está en **inglés** y **español**. Al arrancar se elige, por este orden:
@@ -112,6 +121,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 | `u` | **Deshacer el último cambio**: muestra el diff con la última versión anterior y la restaura (haciendo antes copia de la actual, así que pulsar `u` otra vez lo rehace) |
 | `k` / `b` | Crear / restaurar un backup (`Caddyfile` + `.env` en `.caddy-backups/`); la lista indica la antigüedad de cada uno y cuántas líneas cambiarían, y ves el diff antes de confirmar |
 | `n` | Editar `.env` |
+| `S` | Cambiar a otro contenedor de Caddy (si hay varios) |
 | `L` | Cambiar de idioma (English / Español) |
 
 ### Qué comprueba el diagnóstico

@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 19:18+0200\n"
+"POT-Creation-Date: 2026-10-18 20:39+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -108,6 +108,9 @@ msgstr "Editar .env"
 msgid "Quit"
 msgstr "Salir"
 
+msgid "Switch Caddy"
+msgstr "Cambiar de Caddy"
+
 #, python-brace-format
 msgid "Command not found: {cmd}"
 msgstr "No se encuentra el comando: {cmd}"
@@ -126,8 +129,9 @@ msgstr "Hay varios contenedores de Caddy; elige uno con --container NOMBRE."
 msgid "There are several Caddy containers:"
 msgstr "Hay varios contenedores de Caddy:"
 
-msgid "Choose a number: "
-msgstr "Elige número: "
+#, python-brace-format
+msgid "Choose a number [{default}]: "
+msgstr "Elige un número [{default}]: "
 
 msgid "Invalid selection. Use --container NAME."
 msgstr "Selección no válida. Usa --container NOMBRE."
@@ -601,6 +605,14 @@ msgstr ""
 msgid "Also notify on warnings (not only on problems)?"
 msgstr "¿Avisar también de los avisos (no solo de los problemas)?"
 
+#, python-brace-format
+msgid ""
+"There are {n} Caddy containers on this machine. Monitor all of them (not "
+"only {name})?"
+msgstr ""
+"Hay {n} contenedores de Caddy en esta máquina. ¿Vigilarlos todos (no solo "
+"{name})?"
+
 msgid ""
 "Also ban scanners automatically, like fail2ban? (only public addresses; bans "
 "expire)"
@@ -1003,6 +1015,10 @@ msgstr "Contenedor: "
 #, python-brace-format
 msgid "  (up {time})"
 msgstr "  (activo {time})"
+
+#, python-brace-format
+msgid "{i}/{n} Caddy containers · [S] switch"
+msgstr "{i}/{n} contenedores de Caddy · [S] cambiar"
 
 msgid "↑/↓ PgUp/PgDn scroll output"
 msgstr "↑/↓ PgUp/PgDn desplazar salida"
@@ -1749,6 +1765,20 @@ msgstr ""
 "Contiene: {files}\n"
 "En la máquina nueva: caddy-tui --import {name}"
 
+msgid "Only one Caddy container was found."
+msgstr "Solo se ha encontrado un contenedor de Caddy."
+
+msgid "Choose the Caddy to manage"
+msgstr "Elige el Caddy que gestionar"
+
+#, python-brace-format
+msgid "Now managing {name}."
+msgstr "Ahora gestionas {name}."
+
+#, python-brace-format
+msgid "Caddyfile: {path}"
+msgstr "Caddyfile: {path}"
+
 msgid "Language"
 msgstr "Idioma"
 
@@ -1873,6 +1903,16 @@ msgstr ""
 
 msgid "with --import: do not ask for confirmation"
 msgstr "con --import: no pide confirmación"
+
+msgid ""
+"with --check / --auto-block: run for every Caddy container on this machine "
+"(exit code = the worst one)"
+msgstr ""
+"con --check / --auto-block: se ejecuta para cada contenedor de Caddy de esta "
+"máquina (el código de salida es el del peor)"
+
+msgid "list the Caddy containers found on this machine and exit"
+msgstr "lista los contenedores de Caddy encontrados en esta máquina y termina"
 
 msgid "This program needs an interactive terminal."
 msgstr "Este programa necesita un terminal interactivo."

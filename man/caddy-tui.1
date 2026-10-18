@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.7.1" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.8.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -91,6 +91,12 @@ certificates into a new folder and starts Caddy.
 .B \-y
 skips the questions.
 .TP
+.B \-\-list
+List the Caddy containers found on this machine (state, image, Caddyfile) and exit.
+.TP
+.B \-\-all
+With \fB\-\-check\fR, \fB\-\-notify\fR or \fB\-\-auto\-block\fR: run for every Caddy container; the exit code is the worst one.
+.TP
 .B \-\-version
 Show the version and exit.
 .SH EXIT STATUS
@@ -158,6 +164,9 @@ Create / restore a backup (Caddyfile and .env).
 .TP
 .B n
 Edit .env.
+.TP
+.B S
+Switch to another Caddy container (when there are several).
 .TP
 .B L
 Change the interface language.

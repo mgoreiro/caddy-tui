@@ -56,7 +56,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -131,13 +131,29 @@ def load_saved_lang():
         return None
 
 
-def save_lang(lang):
+def load_config():
     try:
+        with open(_config_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def update_config(**values):
+    """Merge `values` into ~/.config/caddy-tui/config.json (language, last Caddy used...)."""
+    try:
+        data = load_config()
+        data.update(values)
         os.makedirs(os.path.dirname(_config_path()), exist_ok=True)
         with open(_config_path(), "w", encoding="utf-8") as f:
-            json.dump({"lang": lang}, f)
+            json.dump(data, f)
     except OSError:
         pass
+
+
+def save_lang(lang):
+    update_config(lang=lang)
 
 
 def system_lang():
@@ -191,6 +207,7 @@ MENU = [
     ("b", N_("Restore backup")),
     ("n", N_("Edit .env")),
     ("q", N_("Quit")),
+    ("S", N_("Switch Caddy")),
     ("L", "Language / Idioma"),
 ]
 
@@ -227,6 +244,75 @@ def inspect_container(name):
         return None
 
 
+
+# ------------------------------------------------------------- several Caddy ---
+CONFIG_GLOBALS = ("BASE", "CONTAINER", "SERVICE", "COMPOSE", "IMAGE", "CADDYFILE", "CADDYDIR", "ENVFILE", "BACKUPS",
+                  "CONF_IN_CONTAINER")
+MULTI = False       # True while running over several containers (labels the notifications)
+
+
+def snapshot_config():
+    g = globals()
+    return {k: g[k] for k in CONFIG_GLOBALS}
+
+
+def restore_config(snap):
+    globals().update(snap)
+
+
+def configure_other(args, name):
+    """Point the program at another Caddy container. -> (True, "") or (False, message); on failure the previous one stays active.
+    Options that described the first container (--dir, --caddyfile, --compose...) are not applied to the others."""
+    snap = snapshot_config()
+    ns = argparse.Namespace(**vars(args))
+    ns.container = name
+    ns.caddyfile = ns.dir = ns.compose = ns.service = ns.image = None
+    try:
+        configure(ns)
+    except SystemExit as e:
+        restore_config(snap)
+        return False, str(e.code)
+    return True, ""
+
+
+def run_for_all(args, func, collect=None):
+    """Headless: run func(args) for every Caddy container. -> the worst exit code (3 if none was found)."""
+    global MULTI
+    cands = list_caddy_containers()
+    if not cands:
+        print(_("No Caddy container found. Specify one with --container NAME."), file=sys.stderr)
+        return 3
+    MULTI, worst = len(cands) > 1, 0
+    try:
+        for name, __, __ in cands:
+            ok, msg = configure_other(args, name)
+            if not ok:
+                print(f"== {name} ==\n{msg}", file=sys.stderr)
+                worst = max(worst, 3)
+                continue
+            if MULTI and collect is None:
+                print(f"== {name} ==")
+            worst = max(worst, func(args))
+            if MULTI and collect is None:
+                print()
+    finally:
+        MULTI = False
+    return worst
+
+
+def print_caddies():
+    """--list: every Caddy container with its state, image and Caddyfile."""
+    rows = list_caddy_containers()
+    if not rows:
+        print(_("No Caddy container found. Specify one with --container NAME."))
+        return 1
+    for name, image, state in rows:
+        info = inspect_container(name) or {}
+        src = next((m["Source"] for m in info.get("Mounts", []) if m.get("Destination", "").endswith("Caddyfile")), "-")
+        print(f"{name:<24} {state:<10} {image:<28} {src}")
+    return 0
+
+
 def configure(args):
     """Deduce container, Caddyfile, compose project and image; any of them can be forced with options."""
     global BASE, CONTAINER, SERVICE, COMPOSE, IMAGE, CADDYFILE, CADDYDIR, ENVFILE, BACKUPS, CONF_IN_CONTAINER
@@ -241,10 +327,13 @@ def configure(args):
             sys.exit(_("There are several Caddy containers; choose one with --container NAME."))
         else:
             print(_("There are several Caddy containers:"))
+            saved = load_config().get("container")
+            default = next((i for i, row in enumerate(cands, 1) if row[0] == saved), 1)
             for i, (n, img, st) in enumerate(cands, 1):
-                print(f"  {i}) {n}  ({img}, {st})")
+                print(f"  {i}) {n}  ({img}, {st})" + ("  ←" if i == default else ""))
             try:
-                name = cands[int(input(_("Choose a number: "))) - 1][0]
+                choice = input(_("Choose a number [{default}]: ").format(default=default)).strip()
+                name = cands[int(choice or default) - 1][0]
             except (ValueError, IndexError, EOFError):
                 sys.exit(_("Invalid selection. Use --container NAME."))
     info = inspect_container(name)
@@ -632,7 +721,7 @@ def bans_path():
     return os.path.join(base, "bans.json")
 
 
-def load_bans():
+def _read_bans_file():
     try:
         with open(bans_path(), encoding="utf-8") as f:
             data = json.load(f)
@@ -641,11 +730,24 @@ def load_bans():
         return {}
 
 
+def load_bans():
+    """Bans of the active Caddy container. (Before 1.8 the file was a flat {ip: ban} shared by all: it is adopted by
+    whichever container reads it first.)"""
+    data = _read_bans_file()
+    if "containers" in data:
+        return data["containers"].get(CONTAINER, {})
+    return data
+
+
 def save_bans(bans):
+    data = _read_bans_file()
+    if "containers" not in data:
+        data = {"containers": {}}
+    data["containers"][CONTAINER] = bans
     try:
         os.makedirs(os.path.dirname(bans_path()), exist_ok=True)
         with open(bans_path(), "w", encoding="utf-8") as f:
-            json.dump(bans, f, indent=1)
+            json.dump(data, f, indent=1)
     except OSError as e:
         print(e, file=sys.stderr)
 
@@ -1537,16 +1639,20 @@ def diagnose():
     return items, fixes, need
 
 
-def run_check(args):
-    """Headless diagnostics (for cron / systemd / monitoring). Exit code: 0 ok, 1 warnings, 2 problems."""
+def run_check(args, collect=None):
+    """Headless diagnostics (for cron / systemd / monitoring). Exit code: 0 ok, 1 warnings, 2 problems.
+    `collect` (a list) receives the JSON payload instead of printing it (used by --all --json)."""
     items, __, __ = diagnose()
     errs = sum(1 for i in items if i[0] == "err")
     warns = sum(1 for i in items if i[0] == "warn")
     code = 2 if errs else 1 if warns else 0
     if args.json:
-        print(json.dumps({"status": ("ok", "warning", "critical")[code], "problems": errs, "warnings": warns,
-                          "checks": [{"level": l, "title": t, "details": d} for l, t, d in items]},
-                         ensure_ascii=False, indent=2))
+        payload = {"status": ("ok", "warning", "critical")[code], "problems": errs, "warnings": warns,
+                   "checks": [{"level": l, "title": t, "details": d} for l, t, d in items]}
+        if collect is not None:
+            collect.append(dict(payload, container=CONTAINER))
+        else:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
     elif not (args.quiet and code == 0):
         shown = [i for i in items if not args.quiet or i[0] != "ok"]
         print("\n".join(format_items(shown) + ["", summary_line(items)]))
@@ -1562,8 +1668,24 @@ UNIT_NAME = "caddy-tui-check"
 CRON_FILE = "/etc/cron.d/caddy-tui-check"
 
 
+def state_dir():
+    return os.environ.get("CADDY_TUI_STATE_DIR") or "/var/lib/caddy-tui"
+
+
 def state_path():
-    return os.path.join(os.environ.get("CADDY_TUI_STATE_DIR") or "/var/lib/caddy-tui", "alert-state.json")
+    """Alert state (what was already notified) of the active Caddy container."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", CONTAINER) or "default"
+    return os.path.join(state_dir(), f"alert-state-{safe}.json")
+
+
+def read_alert_state():
+    for path in (state_path(), os.path.join(state_dir(), "alert-state.json")):       # the second one: before 1.8, shared
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            continue
+    return {}
 
 
 def read_env_file(path):
@@ -1664,11 +1786,7 @@ def notify_result(items, code):
         print(_("Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Run: sudo caddy-tui --setup-alerts"),
               file=sys.stderr)
         return
-    try:
-        with open(state_path(), encoding="utf-8") as f:
-            state = json.load(f)
-    except (OSError, ValueError):
-        state = {}
+    state = read_alert_state()
     on_warn = os.environ.get("ALERT_ON_WARNINGS") == "1"
     try:
         repeat = float(os.environ.get("ALERT_REPEAT_HOURS") or 24)
@@ -1677,7 +1795,7 @@ def notify_result(items, code):
     kind, new_state = alert_decision(code, items, state, time.time(), on_warn, repeat)
     if not kind:
         return
-    host = socket.gethostname()
+    host = socket.gethostname() + (f"/{CONTAINER}" if MULTI else "")
     if kind == "recovered":
         text = "✔ " + _("{host}: Caddy is OK again.").format(host=host)
     else:
@@ -1697,8 +1815,9 @@ def notify_result(items, code):
         print(e, file=sys.stderr)
 
 
-def render_service(command, auto_block=False):
-    pre = f"ExecStartPre=-{command} --auto-block\n" if auto_block else ""
+def render_service(command, auto_block=False, all_containers=False):
+    every = " --all" if all_containers else ""
+    pre = f"ExecStartPre=-{command} --auto-block{every}\n" if auto_block else ""
     return f"""[Unit]
 Description=Check the Caddy container with caddy-tui
 Documentation=man:caddy-tui(1)
@@ -1707,7 +1826,7 @@ Documentation=man:caddy-tui(1)
 Type=oneshot
 EnvironmentFile=-{ALERT_ENV}
 StateDirectory=caddy-tui
-{pre}ExecStart={command} --check --quiet --notify
+{pre}ExecStart={command} --check --quiet --notify{every}
 # Exit 1 means warnings only: not a failure of the unit.
 SuccessExitStatus=1
 """
@@ -1734,10 +1853,11 @@ def cron_schedule(minutes):
     return "0 0 * * *" if hours >= 24 else f"0 */{hours} * * *"
 
 
-def render_cron(command, minutes, auto_block=False):
-    pre = f"{command} --auto-block >/dev/null 2>&1; " if auto_block else ""
+def render_cron(command, minutes, auto_block=False, all_containers=False):
+    every = " --all" if all_containers else ""
+    pre = f"{command} --auto-block{every} >/dev/null 2>&1; " if auto_block else ""
     return (f"# caddy-tui: periodic Caddy check with Telegram alerts\nSHELL=/bin/sh\n"
-            f"{cron_schedule(minutes)} root {pre}{command} --check --quiet --notify >/dev/null 2>&1\n")
+            f"{cron_schedule(minutes)} root {pre}{command} --check --quiet --notify{every} >/dev/null 2>&1\n")
 
 
 def ask_line(prompt, default=""):
@@ -1811,6 +1931,9 @@ def setup_alerts(args):
     except ValueError:
         sys.exit(_("Invalid interval. Use between 5 minutes and 24 hours, e.g. 30m, 1h, 6h."))
     on_warn = args.notify_warnings or ask_yes(_("Also notify on warnings (not only on problems)?"), False)
+    others = list_caddy_containers()
+    all_containers = len(others) > 1 and ask_yes(
+        _("There are {n} Caddy containers on this machine. Monitor all of them (not only {name})?").format(n=len(others), name=CONTAINER), True)
     auto_block, ban_time = ask_yes(_("Also ban scanners automatically, like fail2ban? (only public addresses; bans expire)"), False), "24h"
     if auto_block:
         ban_time = ask_line(_("Ban length (e.g. 24h, 7d; 0 = permanent)"), "24h")
@@ -1819,18 +1942,18 @@ def setup_alerts(args):
         except ValueError:
             sys.exit(_("Invalid time span. Use e.g. 15m, 24h, 7d."))
 
-    values = {"TELEGRAM_BOT_TOKEN": token, "TELEGRAM_CHAT_ID": chat, "CADDY_CONTAINER": CONTAINER,
+    values = {"TELEGRAM_BOT_TOKEN": token, "TELEGRAM_CHAT_ID": chat, "CADDY_CONTAINER": "" if all_containers else CONTAINER,
               "CADDY_TUI_LANG": LANG, "ALERT_ON_WARNINGS": "1" if on_warn else "0",
               "CADDY_CADDYFILE": args.caddyfile or "", "CADDY_DIR": args.dir or "",
               "CADDY_COMPOSE": args.compose or "", "CADDY_SERVICE": args.service or "",
-              "AUTOBLOCK": "1" if auto_block else "", "AUTOBLOCK_BAN": ban_time if auto_block else "",
+              "CADDY_ALL": "1" if all_containers else "", "AUTOBLOCK": "1" if auto_block else "", "AUTOBLOCK_BAN": ban_time if auto_block else "",
               "AUTOBLOCK_WINDOW": f"{minutes}m" if auto_block else ""}
     write_env_file(ALERT_ENV, values)
     print(_("Saved {path} (mode 600).").format(path=ALERT_ENV))
 
     command = _program_command()
     if _systemd_available():
-        for name, text in ((UNIT_NAME + ".service", render_service(command, auto_block)), (UNIT_NAME + ".timer", render_timer(minutes))):
+        for name, text in ((UNIT_NAME + ".service", render_service(command, auto_block, all_containers)), (UNIT_NAME + ".timer", render_timer(minutes))):
             with open(os.path.join(SYSTEMD_DIR, name), "w", encoding="utf-8") as f:
                 f.write(text)
         for cmd in (["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", UNIT_NAME + ".timer"]):
@@ -1841,7 +1964,7 @@ def setup_alerts(args):
             minutes=minutes, unit=UNIT_NAME))
     else:
         with open(CRON_FILE, "w", encoding="utf-8") as f:
-            f.write(render_cron(command, minutes, auto_block))
+            f.write(render_cron(command, minutes, auto_block, all_containers))
         print(_("No systemd found: cron job written to {path} (every {minutes} min).").format(path=CRON_FILE, minutes=minutes))
 
     host = socket.gethostname()
@@ -2619,8 +2742,10 @@ def import_flow(args, bundle):
 
 # --------------------------------------------------------------------- UI ----
 class App:
-    def __init__(self, scr):
+    def __init__(self, scr, args=None):
         self.scr = scr
+        self.args = args
+        self.caddies, self.caddies_ts = [], 0
         self.out = [_("Welcome. Press a key from the menu.")]
         self.title = _("Output")
         self.diff = False
@@ -2650,6 +2775,8 @@ class App:
         if force or time.time() - self.last_refresh > 3:
             self.state = container_state()
             self.last_refresh = time.time()
+        if force or time.time() - getattr(self, "caddies_ts", 0) > 20:
+            self.caddies, self.caddies_ts = list_caddy_containers(), time.time()
 
     # -- drawing
     def draw(self):
@@ -2668,6 +2795,10 @@ class App:
         scr.addstr(f"● {state_label(state)}", curses.color_pair(color) | curses.A_BOLD)
         if state == "running":
             scr.addstr(_("  (up {time})").format(time=uptime(started)))
+        names = [row[0] for row in getattr(self, "caddies", [])]
+        if len(names) > 1:
+            pos = names.index(CONTAINER) + 1 if CONTAINER in names else 1
+            scr.addstr("  " + _("{i}/{n} Caddy containers · [S] switch").format(i=pos, n=len(names)), curses.A_DIM)
         scr.addstr(2, 1, f"Caddyfile: {CADDYFILE}"[: w - 2])
 
         # menu in two columns
@@ -3695,6 +3826,24 @@ class App:
         self.show(_("Export"), "✔ " + _("Exported to {path} ({size} KB).\nContains: {files}\nOn the new machine: caddy-tui --import {name}").format(
             path=path, size=max(1, os.path.getsize(path) // 1024), files=", ".join(sorted(manifest["files"])), name=os.path.basename(path)))
 
+    def act_switch(self):
+        rows = list_caddy_containers()
+        if len(rows) < 2:
+            self.show(_("Switch Caddy"), _("Only one Caddy container was found."))
+            return
+        labels = [("● " if n == CONTAINER else "  ") + f"{n}  ({img}, {state_label(st)})" for n, img, st in rows]
+        i = self.pick(_("Choose the Caddy to manage"), labels)
+        if i is None or rows[i][0] == CONTAINER:
+            return
+        ok, msg = configure_other(self.args or argparse.Namespace(), rows[i][0])
+        if not ok:
+            self.show(_("Switch Caddy"), "✘ " + msg)
+            return
+        update_config(container=CONTAINER)
+        self.refresh_state(True)
+        self.show(_("Switch Caddy"), "✔ " + _("Now managing {name}.").format(name=CONTAINER) + "\n"
+                  + _("Caddyfile: {path}").format(path=CADDYFILE))
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -3731,6 +3880,8 @@ class App:
                 return
             elif k == ord("L"):
                 self.act_language()
+            elif k == ord("S"):
+                self.act_switch()
             elif 0 <= k < 256 and chr(k).lower() in actions:
                 try:
                     actions[chr(k).lower()]()
@@ -3779,6 +3930,9 @@ def parse_args():
     ap.add_argument("--with-alerts", action="store_true", help=_("with --export: include the alerts settings (Telegram token)"))
     ap.add_argument("--import", dest="import_file", metavar="FILE", help=_("restore an export made with --export into a new Caddy in Docker"))
     ap.add_argument("-y", "--yes", action="store_true", help=_("with --import: do not ask for confirmation"))
+    ap.add_argument("--all", action="store_true", help=_(
+        "with --check / --auto-block: run for every Caddy container on this machine (exit code = the worst one)"))
+    ap.add_argument("--list", action="store_true", help=_("list the Caddy containers found on this machine and exit"))
     ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
     return ap.parse_args()
 
@@ -3810,6 +3964,15 @@ def main():
             sys.exit(msg)
     if not ensure_docker_running(interactive and not args.setup_alerts, None if interactive else sys.stderr):
         sys.exit(3 if (args.check or args.auto_block) else 1)
+    if args.list:
+        sys.exit(print_caddies())
+    if args.all and (args.check or args.auto_block):
+        collect = [] if (args.json and not args.auto_block) else None
+        code = run_for_all(args, run_auto_block if args.auto_block else (lambda a: run_check(a, collect)), collect)
+        if collect is not None:
+            print(json.dumps({"status": ("ok", "warning", "critical", "critical")[min(code, 3)] if code < 3 else "unknown",
+                              "containers": collect}, ensure_ascii=False, indent=2))
+        sys.exit(code)
     if args.export is not None:
         try:
             configure(args)
@@ -3857,7 +4020,8 @@ def main():
             sys.exit(1)
         args.container, args.dir = name, None
         configure(args)
-    curses.wrapper(lambda scr: App(scr).loop())
+    update_config(container=CONTAINER)
+    curses.wrapper(lambda scr: App(scr, args).loop())
 
 
 if __name__ == "__main__":
