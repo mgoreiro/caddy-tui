@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>caddy-tui apt repository</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem}pre{background:#8881;padding:.8rem;overflow:auto;border-radius:6px}</style>
+</head>
+<body>
+<h1>caddy-tui apt repository</h1>
+<p>Signed apt repository for <a href="https://github.com/mgoreiro/caddy-tui">caddy-tui</a>, a terminal UI to manage Caddy in Docker.
+Architecture independent (<code>all</code>): Debian, Ubuntu, Raspberry Pi OS, Armbian…</p>
+<p>Key fingerprint: <code>BA7E 2381 6880 1639 21BC&nbsp; 70DE 15C2 632D D390 10EE</code></p>
+<pre>curl -fsSL https://mgoreiro.github.io/caddy-tui/apt/caddy-tui.gpg | sudo tee /usr/share/keyrings/caddy-tui.gpg &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/caddy-tui.gpg] https://mgoreiro.github.io/caddy-tui/apt stable main" | sudo tee /etc/apt/sources.list.d/caddy-tui.list
+sudo apt update &amp;&amp; sudo apt install caddy-tui</pre>
+<p>Then <code>sudo apt update &amp;&amp; sudo apt upgrade</code> keeps it up to date.</p>
+</body>
+</html>
