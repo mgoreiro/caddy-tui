@@ -7,6 +7,7 @@ import ssl
 import subprocess
 import threading
 import contextlib
+import email.message
 import io
 import importlib.util
 import json
@@ -1082,6 +1083,168 @@ class BlocklistFlow(unittest.TestCase):
         self.app.block_ip("203.0.113.5")
         new = c.sync_blocklist(self.current().rstrip("\n") + "\n\nnew.example.com {\n\trespond \"x\"\n}\n")
         self.assertEqual(c.sites_without_blocklist(new), [])
+
+
+def http_error(code, headers=None, url="https://x/"):
+    msg = email.message.Message()
+    for k, v in (headers or {}).items():
+        msg[k] = v
+    return c.urllib.error.HTTPError(url, code, "err", msg, io.BytesIO(b""))
+
+
+class FakeResponse:
+    def __init__(self, headers=None, body=b""):
+        self.headers, self._body = headers or {}, body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, *a):
+        return self._body
+
+
+class ImageRegistry(unittest.TestCase):
+    def test_parse_image(self):
+        P = c.parse_image
+        self.assertEqual(P("caddy:2-alpine"), ("registry-1.docker.io", "library/caddy", "2-alpine"))
+        self.assertEqual(P("caddy"), ("registry-1.docker.io", "library/caddy", "latest"))
+        self.assertEqual(P("user/app:1.0"), ("registry-1.docker.io", "user/app", "1.0"))
+        self.assertEqual(P("docker.io/library/caddy:2"), ("registry-1.docker.io", "library/caddy", "2"))
+        self.assertEqual(P("ghcr.io/org/app:release"), ("ghcr.io", "org/app", "release"))
+        self.assertEqual(P("localhost:5000/app"), ("localhost:5000", "app", "latest"))
+        self.assertEqual(P("reg.example.com:5000/a/b:tag"), ("reg.example.com:5000", "a/b", "tag"))
+        self.assertIsNone(P("caddy@sha256:" + "a" * 64))
+
+    def test_digest_con_token_anonimo(self):
+        calls = []
+
+        def fake_urlopen(req, timeout=None):
+            url = req if isinstance(req, str) else req.full_url
+            auth = None if isinstance(req, str) else req.get_header("Authorization")
+            calls.append((url, auth))
+            if url.startswith("https://auth.example/token"):
+                return FakeResponse(body=b'{"token": "TOK"}')
+            if auth == "Bearer TOK":
+                return FakeResponse(headers={"Docker-Content-Digest": "sha256:abc"})
+            raise http_error(401, {"WWW-Authenticate": 'Bearer realm="https://auth.example/token",service="reg",scope="repository:library/caddy:pull"'})
+        with mock.patch.object(c.urllib.request, "urlopen", side_effect=fake_urlopen):
+            self.assertEqual(c.registry_digest("caddy:2-alpine"), "sha256:abc")
+        self.assertIn("service=reg", calls[1][0])
+        self.assertIn("https://registry-1.docker.io/v2/library/caddy/manifests/2-alpine", calls[0][0])
+
+    def test_errores_del_registro(self):
+        for exc, expected in ((http_error(404), "HTTP 404"), (c.urllib.error.URLError("no route"), "no route")):
+            with mock.patch.object(c.urllib.request, "urlopen", side_effect=exc):
+                with self.assertRaisesRegex(RuntimeError, expected):
+                    c.registry_digest("caddy:2")
+        with mock.patch.object(c.urllib.request, "urlopen", return_value=FakeResponse()):
+            with self.assertRaises(RuntimeError):
+                c.registry_digest("caddy:2")
+        with self.assertRaises(RuntimeError):
+            c.registry_digest("caddy@sha256:" + "a" * 64)
+
+    def test_cache(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"XDG_CACHE_HOME": d}):
+            with mock.patch.object(c, "registry_digest", return_value="sha256:one") as m:
+                self.assertEqual(c.cached_registry_digest("caddy:2", now=1000), "sha256:one")
+                self.assertEqual(c.cached_registry_digest("caddy:2", now=1000 + 3600), "sha256:one")
+                self.assertEqual(m.call_count, 1)                      # served from the cache
+                c.cached_registry_digest("caddy:2", now=1000 + 7 * 3600)
+                self.assertEqual(m.call_count, 2)                      # expired
+                c.cached_registry_digest("caddy:3", now=1000 + 7 * 3600)
+                self.assertEqual(m.call_count, 3)                      # another image
+
+
+class ImageStatus(unittest.TestCase):
+    def status(self, tag_id="sha256:aaa", repo_digests='["caddy@sha256:d1"]', digest="sha256:d1", error=None):
+        def fake_run(cmd, **k):
+            joined = " ".join(cmd)
+            if "caddy version" in joined:
+                return 0, "v2.8.0 h1:xyz"
+            if "{{.Image}}" in joined:
+                return 0, "sha256:aaa"
+            if "{{.Id}}" in joined:
+                return 0, tag_id
+            if "RepoDigests" in joined:
+                return 0, repo_digests
+            return 1, ""
+
+        def digest_fn(ref):
+            if error:
+                raise RuntimeError(error)
+            return digest
+        with mock.patch.object(c, "run", side_effect=fake_run), mock.patch.object(c, "CONTAINER", "cx"), \
+             mock.patch.object(c, "IMAGE", "caddy:2-alpine"):
+            return c.check_image_update(digest_fn)
+
+    def test_estados(self):
+        self.assertEqual(self.status()["status"], "current")
+        self.assertEqual(self.status(digest="sha256:new")["status"], "update")
+        self.assertEqual(self.status(tag_id="sha256:bbb")["status"], "pulled")        # tag moved locally, container is behind
+        self.assertEqual(self.status(repo_digests="[]")["status"], "local")
+        info = self.status(error="HTTP 429")
+        self.assertEqual((info["status"], info["error"]), ("unknown", "HTTP 429"))
+        self.assertEqual(self.status()["version"], "v2.8.0")
+
+
+class ImageUpdateFlow(unittest.TestCase):
+    def setUp(self):
+        self.cmds, self.shown = [], []
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        cf = os.path.join(self.tmp.name, "Caddyfile")
+        with open(cf, "w") as f:
+            f.write(":80 {\n}\n")
+        for name, val in (("CADDYFILE", cf), ("COMPOSE", "/x/docker-compose.yml"), ("SERVICE", "caddy"), ("CONTAINER", "cx"), ("IMAGE", "caddy:2-alpine")):
+            p = mock.patch.object(c, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        self.versions = iter(["v2.9.0"])
+        for name, kw in (("run", dict(side_effect=lambda cmd, **k: (self.cmds.append(cmd), (0, ""))[1])),
+                         ("validate_text", dict(return_value=(True, ""))),
+                         ("caddy_version", dict(side_effect=lambda: next(self.versions))),
+                         ("time", dict())):
+            p = mock.patch.object(c, name, **kw) if name != "time" else mock.patch.object(c.time, "sleep")
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = c.App.__new__(c.App)
+        self.app.show = lambda t, x: self.shown.append((t, x))
+        self.app.busy = lambda m: None
+        self.app.refresh_state = lambda force=False: None
+        self.info = {"status": "update", "ref": "caddy:2-alpine", "version": "v2.8.0", "error": None, "image_id": "sha256:" + "a" * 64}
+
+    def test_actualiza_valida_y_recrea(self):
+        self.app.update_image(self.info)
+        self.assertEqual(self.cmds[0][-2:], ["pull", "caddy"])
+        self.assertIn("--force-recreate", self.cmds[1])
+        self.assertIn("v2.8.0 → v2.9.0", self.shown[-1][1])
+        self.assertIn("docker tag aaaaaaaaaaaa caddy:2-alpine", self.shown[-1][1])
+
+    def test_si_la_nueva_version_rechaza_el_caddyfile_no_se_recrea(self):
+        with mock.patch.object(c, "validate_text", return_value=(False, "unknown directive")):
+            self.app.update_image(self.info)
+        self.assertEqual(len(self.cmds), 1)                    # pulled, but never recreated
+        self.assertIn("unknown directive", self.shown[-1][1])
+        self.assertIn("untouched", self.shown[-1][0])
+
+    def test_fallo_al_descargar(self):
+        with mock.patch.object(c, "run", return_value=(1, "pull access denied")):
+            self.app.update_image(self.info)
+        self.assertIn("pull access denied", self.shown[-1][1])
+
+    def test_ya_descargada_solo_recrea(self):
+        self.app.update_image(self.info, pull=False)
+        self.assertNotIn("pull", [p for cmd in self.cmds for p in cmd])
+        self.assertIn("--force-recreate", self.cmds[0])
+
+    def test_sin_compose_descarga_y_avisa(self):
+        with mock.patch.object(c, "COMPOSE", ""):
+            self.app.update_image(self.info)
+        self.assertEqual(self.cmds, [["docker", "pull", "caddy:2-alpine"]])
+        self.assertIn("recreate it yourself", self.shown[-1][1])
 
 
 class Translations(unittest.TestCase):

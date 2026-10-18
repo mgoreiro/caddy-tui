@@ -16,6 +16,10 @@ caddy-tui (1.6.0) unstable; urgency=medium
     (a snippet defined before the first site plus an import in each one);
     [b] in the traffic monitor blocks one of the busiest addresses. New or
     edited sites keep the protection; the diagnostics warn if a site lacks it.
+  * New [y]: update the Caddy image. Compares the running image digest with
+    the registry (anonymous bearer token; Docker Hub, GHCR, Quay...), pulls
+    the new one, validates the Caddyfile with it and only then recreates the
+    container. The diagnostics warn when an update is available (cached 6 h).
 
  -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
 
