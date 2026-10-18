@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 15:03+0200\n"
+"POT-Creation-Date: 2026-10-18 15:13+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -47,6 +47,9 @@ msgstr "Gestionar servicios"
 
 msgid "Traffic monitor"
 msgstr "Monitor de tráfico"
+
+msgid "Blocked IPs"
+msgstr "IPs bloqueadas"
 
 msgid "Diagnostics & repair"
 msgstr "Diagnóstico y reparación"
@@ -406,6 +409,15 @@ msgstr "Sin errores en los logs de los últimos 10 min"
 #, python-brace-format
 msgid "HTTPS certificates valid ({n})"
 msgstr "Certificados HTTPS válidos ({n})"
+
+#, python-brace-format
+msgid "The IP blocklist is not applied to: {sites}"
+msgstr "La lista de bloqueo de IPs no se aplica a: {sites}"
+
+msgid "Fix: open [i] and choose \"Re-apply the blocklist to all sites\"."
+msgstr ""
+"Solución: abre [i] y elige \"Reaplicar la lista de bloqueo a todos los "
+"sitios\"."
 
 #, python-brace-format
 msgid "All {n} site(s) answer correctly (checked from this machine)"
@@ -988,8 +1000,8 @@ msgstr ""
 msgid "(services created with the wizard [a] include it by default)."
 msgstr "(los servicios creados con el asistente [a] la incluyen por defecto)."
 
-msgid "[p] pause · [w] window · [c] clear · [q] back"
-msgstr "[p] pausa · [w] ventana · [c] limpiar · [q] volver"
+msgid "[p] pause · [w] window · [c] clear · [b] block IP · [q] back"
+msgstr "[p] pausa · [w] ventana · [c] limpiar · [b] bloquear IP · [q] volver"
 
 msgid "Log stream closed (container stopped?)"
 msgstr "Se cerró el flujo de logs (¿contenedor parado?)"
@@ -1066,6 +1078,70 @@ msgstr "Probando los sitios (puede tardar unos segundos)..."
 
 msgid "There are no named sites to probe in the Caddyfile."
 msgstr "No hay sitios con nombre que probar en el Caddyfile."
+
+msgid ""
+"Not a valid IP or range (loopback and ranges wider than /8 are refused)."
+msgstr ""
+"No es una IP o rango válido (se rechazan loopback y rangos más amplios que /"
+"8)."
+
+#, python-brace-format
+msgid "{ip} is already blocked."
+msgstr "{ip} ya está bloqueada."
+
+#, python-brace-format
+msgid ""
+"{ip} is a private (LAN) address. Blocking it may lock you out. Continue?"
+msgstr ""
+"{ip} es una dirección privada (LAN). Bloquearla puede dejarte fuera. "
+"¿Continuar?"
+
+#, python-brace-format
+msgid "Block {ip}? Its connections will be dropped on every site."
+msgstr "¿Bloquear {ip}? Sus conexiones se cortarán en todos los sitios."
+
+#, python-brace-format
+msgid "{ip} blocked (previous copy: {path})."
+msgstr "{ip} bloqueada (copia anterior: {path})."
+
+msgid "Block an IP or range…"
+msgstr "Bloquear una IP o rango…"
+
+#, python-brace-format
+msgid "Unblock {ip}"
+msgstr "Desbloquear {ip}"
+
+msgid "Re-apply the blocklist to all sites"
+msgstr "Reaplicar la lista de bloqueo a todos los sitios"
+
+#, python-brace-format
+msgid "Blocked IPs: {n}"
+msgstr "IPs bloqueadas: {n}"
+
+msgid "IP or range (CIDR)"
+msgstr "IP o rango (CIDR)"
+
+msgid "E.g. 203.0.113.5 or 198.51.100.0/24"
+msgstr "Ej.: 203.0.113.5 o 198.51.100.0/24"
+
+msgid "Block an IP or range"
+msgstr "Bloquear una IP o rango"
+
+#, python-brace-format
+msgid "{ip} unblocked (previous copy: {path})."
+msgstr "{ip} desbloqueada (copia anterior: {path})."
+
+#, python-brace-format
+msgid "Blocklist re-applied to all sites (previous copy: {path})."
+msgstr ""
+"Lista de bloqueo reaplicada a todos los sitios (copia anterior: {path})."
+
+msgid "Block which address?"
+msgstr "¿Qué dirección bloquear?"
+
+#, python-brace-format
+msgid "{ip}   {n} requests · {bad} with 4xx/5xx"
+msgstr "{ip}   {n} peticiones · {bad} con 4xx/5xx"
 
 msgid "Language"
 msgstr "Idioma"

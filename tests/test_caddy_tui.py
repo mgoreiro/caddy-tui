@@ -947,6 +947,143 @@ class ProbeHttpServer(unittest.TestCase):
             self.assertTrue(wrong_name["cert_error"])
 
 
+BLOCK_BASE = """\
+{$DOMAIN} {
+\treverse_proxy fileshare:3000
+}
+
+app.example.com {
+\trespond "hi"
+}
+"""
+
+
+class Blocklist(unittest.TestCase):
+    def test_normalize(self):
+        self.assertEqual(c.normalize_network("203.0.113.5"), "203.0.113.5")
+        self.assertEqual(c.normalize_network(" 198.51.100.77/24 "), "198.51.100.0/24")
+        self.assertEqual(c.normalize_network("2001:db8::1"), "2001:db8::1")
+        for bad in ("", "abc", "127.0.0.1", "0.0.0.0", "10.0.0.0/7", "0.0.0.0/0", "::1", "224.0.0.1", "300.1.1.1", "2001:db8::/16"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                c.normalize_network(bad)
+
+    def test_bloquear_anade_snippet_e_import_en_cada_sitio(self):
+        new = c.set_blocked_ips(BLOCK_BASE, ["203.0.113.5", "198.51.100.0/24"])
+        self.assertEqual(c.get_blocked_ips(new), ["203.0.113.5", "198.51.100.0/24"])
+        self.assertEqual(new.count("\timport caddy_tui_blocklist"), 2)
+        self.assertIn("(caddy_tui_blocklist) {", new)
+        self.assertIn("abort @caddy_tui_blocked", new)
+        self.assertEqual([b["addr"][0] for b in c.find_site_blocks(new)], ["{$DOMAIN}", "app.example.com"])
+        self.assertEqual(c.sites_without_blocklist(new), [])
+
+    def test_es_idempotente(self):
+        once = c.set_blocked_ips(BLOCK_BASE, ["203.0.113.5"])
+        self.assertEqual(once, c.set_blocked_ips(once, ["203.0.113.5"]))
+        self.assertEqual(once, c.sync_blocklist(once))
+
+    def test_desbloquear_el_ultimo_deja_el_fichero_como_estaba(self):
+        once = c.set_blocked_ips(BLOCK_BASE, ["203.0.113.5"])
+        self.assertEqual(c.set_blocked_ips(once, []), BLOCK_BASE)
+        two = c.set_blocked_ips(once, ["203.0.113.5", "198.51.100.9"])
+        self.assertEqual(c.get_blocked_ips(c.set_blocked_ips(two, ["198.51.100.9"])), ["198.51.100.9"])
+
+    def test_sin_lista_sync_no_toca_nada(self):
+        self.assertEqual(c.sync_blocklist(BLOCK_BASE), BLOCK_BASE)
+
+    def test_el_snippet_se_define_antes_del_primer_sitio(self):
+        new = c.set_blocked_ips(BLOCK_BASE, ["203.0.113.5"])
+        self.assertLess(new.index("(caddy_tui_blocklist) {"), new.index("{$DOMAIN} {"))
+        # with global options and snippets first, it goes right before the first site
+        base = "{\n\temail a@b.c\n}\n\n(mine) {\n\tencode gzip\n}\n\n# first site\nfoo.example.com {\n\trespond \"x\"\n}\n"
+        new = c.set_blocked_ips(base, ["203.0.113.5"])
+        self.assertLess(new.index("(mine)"), new.index("(caddy_tui_blocklist)"))
+        self.assertLess(new.index("(caddy_tui_blocklist)"), new.index("# first site"))
+        self.assertTrue(new.startswith("{\n\temail"))
+        self.assertEqual(c.set_blocked_ips(new, []), base)
+
+    def test_un_sitio_nuevo_queda_protegido_tras_sync(self):
+        once = c.set_blocked_ips(BLOCK_BASE, ["203.0.113.5"])
+        with_new = once + "\nnew.example.com {\n\trespond \"x\"\n}\n"
+        self.assertEqual(c.sites_without_blocklist(with_new), ["new.example.com"])
+        self.assertEqual(c.sites_without_blocklist(c.sync_blocklist(with_new)), [])
+
+    def test_bloque_con_import_sigue_siendo_simple(self):
+        v = dict(host="x.example.com", upstream="10.0.0.9:80", https_upstream=False, skip_verify=False,
+                 gzip=True, headers=False, log=True, user="", password="")
+        block = c.build_site_block(v).rstrip("\n").split("\n")
+        block.insert(1, "\timport caddy_tui_blocklist")
+        self.assertIsNotNone(c.parse_simple_block(block))
+
+    def test_comentarios_y_snippets_ajenos_se_respetan(self):
+        base = "(mine) {\n\tencode gzip\n}\n\n# hello\nsite.example.com {\n\timport mine\n}\n"
+        blocked = c.set_blocked_ips(base, ["203.0.113.5"])
+        self.assertIn("(mine) {", blocked)
+        self.assertIn("# hello", blocked)
+        self.assertEqual(c.set_blocked_ips(blocked, []), base)
+
+
+class BlocklistFlow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.caddyfile = os.path.join(d, "Caddyfile")
+        with open(self.caddyfile, "w", encoding="utf-8") as f:
+            f.write(BLOCK_BASE)
+        for name, val in (("CADDYFILE", self.caddyfile), ("BASE", d), ("BACKUPS", os.path.join(d, "bk"))):
+            p = mock.patch.object(c, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, kw in (("validate_text", dict(return_value=(True, ""))), ("container_state", dict(return_value=("exited", "")))):
+            p = mock.patch.object(c, name, **kw)
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = c.App.__new__(c.App)
+        self.shown, self.asked = [], []
+        self.app.show = lambda t, x: self.shown.append((t, x))
+        self.app.busy = lambda m: None
+        self.app.draw = lambda: None
+        self.app.ask = lambda q, d=False: (self.asked.append(q), True)[1]
+
+    def current(self):
+        with open(self.caddyfile, encoding="utf-8") as f:
+            return f.read()
+
+    def test_bloquear_ip(self):
+        self.app.block_ip("203.0.113.5")
+        self.assertEqual(c.get_blocked_ips(self.current()), ["203.0.113.5"])
+        self.assertTrue(os.listdir(os.path.join(self.tmp.name, "bk")))
+
+    def test_ip_privada_pide_confirmacion_extra(self):
+        self.app.block_ip("192.168.1.50")
+        self.assertTrue(any("private" in q for q in self.asked))
+
+    def test_no_bloquea_loopback_ni_rangos_enormes(self):
+        for bad in ("127.0.0.1", "10.0.0.0/4"):
+            self.app.block_ip(bad)
+            self.assertEqual(c.get_blocked_ips(self.current()), [])
+        self.assertIn("not a valid", self.shown[-1][1].lower())
+
+    def test_ya_bloqueada(self):
+        self.app.block_ip("203.0.113.5")
+        self.app.block_ip("203.0.113.5")
+        self.assertIn("already blocked", self.shown[-1][1])
+        self.assertEqual(c.get_blocked_ips(self.current()), ["203.0.113.5"])
+
+    def test_desbloquear_desde_el_menu(self):
+        self.app.block_ip("203.0.113.5")
+        self.app.block_ip("198.51.100.9")
+        seq = iter([1])                                   # options: block, unblock 203..., unblock 198..., cancel
+        self.app.pick = lambda t, items: next(seq)
+        self.app.act_blocklist()
+        self.assertEqual(c.get_blocked_ips(self.current()), ["198.51.100.9"])
+
+    def test_el_asistente_de_alta_mantiene_la_proteccion(self):
+        self.app.block_ip("203.0.113.5")
+        new = c.sync_blocklist(self.current().rstrip("\n") + "\n\nnew.example.com {\n\trespond \"x\"\n}\n")
+        self.assertEqual(c.sites_without_blocklist(new), [])
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
