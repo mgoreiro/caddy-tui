@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 22:14+0200\n"
+"POT-Creation-Date: 2026-10-18 08:11+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -42,6 +42,9 @@ msgid "Docker unavailable"
 msgstr ""
 
 msgid "Add service (wizard)"
+msgstr ""
+
+msgid "Manage services"
 msgstr ""
 
 msgid "Traffic monitor"
@@ -136,6 +139,9 @@ msgstr ""
 
 #, python-brace-format
 msgid "Could not prepare validation: {err}"
+msgstr ""
+
+msgid "(custom block)"
 msgstr ""
 
 #, python-brace-format
@@ -693,6 +699,9 @@ msgstr ""
 msgid "Password"
 msgstr ""
 
+msgid "Leave empty to keep the current password"
+msgstr ""
+
 msgid "Stored hashed (bcrypt) in the Caddyfile"
 msgstr ""
 
@@ -711,31 +720,74 @@ msgstr ""
 msgid "The user cannot contain spaces"
 msgstr ""
 
+msgid "There are no site blocks in the Caddyfile yet. Use [a] to add one."
+msgstr ""
+
+msgid "Choose a service"
+msgstr ""
+
+msgid "Edit with the form"
+msgstr ""
+
+msgid "Edit in the editor"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+#, python-brace-format
+msgid "What do you want to do with {host}?"
+msgstr ""
+
+msgid "Block that will be removed"
+msgstr ""
+
+#, python-brace-format
+msgid "Remove service {host}? The block will be deleted from the Caddyfile."
+msgstr ""
+
+msgid "Cancelled. Nothing was changed."
+msgstr ""
+
+#, python-brace-format
+msgid "Service {host} removed (previous copy: {path})."
+msgstr ""
+
+msgid "Edit service"
+msgstr ""
+
+msgid "Generating configuration..."
+msgstr ""
+
+msgid "Could not hash the password (is Docker available?)."
+msgstr ""
+
+msgid "Block preview"
+msgstr ""
+
+msgid "Save to the Caddyfile?"
+msgstr ""
+
+#, python-brace-format
+msgid "Service {host} updated (previous copy: {path})."
+msgstr ""
+
 msgid "Add service to Caddy"
 msgstr ""
 
 msgid "Add service"
 msgstr ""
 
-msgid "Cancelled. Nothing was changed."
-msgstr ""
-
-msgid "Generating configuration..."
-msgstr ""
-
 msgid "Add service: ERROR"
-msgstr ""
-
-msgid "Could not hash the password (is Docker available?)."
 msgstr ""
 
 msgid "The generated configuration is NOT valid"
 msgstr ""
 
 msgid "Block preview (will be appended to the end of the Caddyfile)"
-msgstr ""
-
-msgid "Save to the Caddyfile?"
 msgstr ""
 
 #, python-brace-format

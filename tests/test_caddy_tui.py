@@ -507,6 +507,179 @@ class SetupAndRemove(unittest.TestCase):
         self.assertIn(["systemctl", "disable", "--now", "caddy-tui-check.timer"], self.calls)
 
 
+MANAGE_CADDYFILE = """\
+{
+\temail admin@example.com
+}
+
+(seguridad) {
+\tencode gzip
+}
+
+# my own comment { with a brace
+{$DOMAIN} {
+\timport seguridad
+\treverse_proxy fileshare:3000
+}
+
+# Service added with caddy-tui (2026-01-01 10:00)
+app.example.com {
+\treverse_proxy 10.0.0.5:8080
+\tencode gzip
+\theader {
+\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains"
+\t\tX-Content-Type-Options "nosniff"
+\t\tX-Frame-Options "DENY"
+\t}
+\tlog
+}
+
+a.example.com, b.example.com {
+\trespond "hi"
+}
+"""
+
+
+class ManageBlocks(unittest.TestCase):
+    def blocks(self, text=MANAGE_CADDYFILE):
+        return c.find_site_blocks(text)
+
+    def test_encuentra_sitios_y_omite_global_y_snippets(self):
+        self.assertEqual([b["addr"] for b in self.blocks()],
+                         [["{$DOMAIN}"], ["app.example.com"], ["a.example.com", "b.example.com"]])
+
+    def test_marcador_propio(self):
+        blocks = self.blocks()
+        self.assertIsNone(blocks[0]["marker"])           # comentario ajeno: no es nuestro
+        self.assertEqual(MANAGE_CADDYFILE.split("\n")[blocks[1]["marker"]][:9], "# Service")
+
+    def test_llaves_en_comentarios_no_descuadran(self):
+        self.assertEqual(len(self.blocks()), 3)
+
+    def test_site_addresses_sigue_igual(self):
+        self.assertEqual(c.site_addresses(MANAGE_CADDYFILE),
+                         ["{$DOMAIN}", "app.example.com", "a.example.com", "b.example.com"])
+
+    def test_bloque_del_asistente_es_simple_y_ida_y_vuelta(self):
+        lines = MANAGE_CADDYFILE.split("\n")
+        b = self.blocks()[1]
+        v, pw = c.parse_simple_block(lines[b["start"]:b["end"] + 1])
+        self.assertEqual((v["host"], v["upstream"], v["gzip"], v["headers"], v["log"], pw),
+                         ("app.example.com", "10.0.0.5:8080", True, True, True, None))
+        self.assertEqual([x.strip() for x in c.build_site_block(v, pw).rstrip("\n").split("\n")[1:]],
+                         [x.strip() for x in lines[b["start"]:b["end"] + 1]])
+
+    def test_con_https_auth_y_sin_verificar(self):
+        v = dict(host="x.example.com", upstream="10.0.0.9:8443", https_upstream=True, skip_verify=True,
+                 gzip=False, headers=False, log=True, user="bob", password="")
+        blk = c.build_site_block(v, "$2a$14$abc").split("\n")
+        parsed, pw = c.parse_simple_block(blk)
+        self.assertEqual((parsed["https_upstream"], parsed["skip_verify"], parsed["user"], pw, parsed["upstream"]),
+                         (True, True, "bob", "$2a$14$abc", "10.0.0.9:8443"))
+
+    def test_bloques_a_mano_no_son_simples(self):
+        lines = MANAGE_CADDYFILE.split("\n")
+        for i in (0, 2):                                  # usa import / varias direcciones
+            b = self.blocks()[i + 0 if i == 0 else 2]
+            self.assertIsNone(c.parse_simple_block(lines[b["start"]:b["end"] + 1]))
+
+    def test_quitar_bloque_con_su_marcador(self):
+        new = c.remove_block(MANAGE_CADDYFILE, self.blocks()[1])
+        self.assertNotIn("app.example.com", new)
+        self.assertNotIn("# Service added", new)
+        self.assertNotIn("\n\n\n", new)
+        self.assertEqual([b["addr"][0] for b in c.find_site_blocks(new)], ["{$DOMAIN}", "a.example.com"])
+        self.assertTrue(new.endswith("}\n"))
+
+    def test_quitar_no_borra_comentarios_ajenos(self):
+        self.assertIn("# my own comment", c.remove_block(MANAGE_CADDYFILE, self.blocks()[0]))
+
+    def test_reemplazar_bloque(self):
+        b = self.blocks()[2]
+        new = c.replace_block(MANAGE_CADDYFILE, b, ['c.example.com {', '\trespond "x"', '}'])
+        self.assertIn("c.example.com {", new)
+        self.assertNotIn("a.example.com", new)
+
+    def test_etiqueta(self):
+        lines = MANAGE_CADDYFILE.split("\n")
+        b = self.blocks()
+        self.assertIn("app.example.com  →  10.0.0.5:8080", c.block_label(lines[b[1]["start"]:b[1]["end"] + 1]))
+        self.assertIn("(custom block)", c.block_label(lines[b[2]["start"]:b[2]["end"] + 1]))
+
+
+class ManageFlow(unittest.TestCase):
+    """act_manage end to end with the UI primitives replaced."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.caddyfile = os.path.join(d, "Caddyfile")
+        with open(self.caddyfile, "w", encoding="utf-8") as f:
+            f.write(MANAGE_CADDYFILE)
+        for name, val in (("CADDYFILE", self.caddyfile), ("BASE", d), ("BACKUPS", os.path.join(d, "bk"))):
+            p = mock.patch.object(c, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, kw in (("validate_text", dict(return_value=(True, ""))),
+                         ("container_state", dict(return_value=("exited", "")))):
+            p = mock.patch.object(c, name, **kw)
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = c.App.__new__(c.App)
+        self.shown = []
+        self.app.show = lambda title, text: self.shown.append((title, text))
+        self.app.busy = lambda msg: None
+        self.app.draw = lambda: None
+        self.app.ask = lambda q, d=False: True
+
+    def current(self):
+        with open(self.caddyfile, encoding="utf-8") as f:
+            return f.read()
+
+    def test_quitar(self):
+        seq = iter([1, 2])                                # app.example.com ; form, editor, remove -> 2
+        self.app.pick = lambda t, i: next(seq)
+        self.app.act_manage()
+        self.assertNotIn("app.example.com", self.current())
+        self.assertTrue(os.listdir(os.path.join(self.tmp.name, "bk")))
+
+    def test_editar_con_formulario(self):
+        seq = iter([1, 0])                                # app.example.com ; "Edit with the form"
+        self.app.pick = lambda t, i: next(seq)
+        captured = {}
+
+        def fake_form(title, initial, existing, pw_hash=None, editing=False):
+            captured.update(initial=initial, existing=existing)
+            return dict(initial, upstream="10.0.0.99:9000", gzip=False)
+        self.app._service_form = fake_form
+        self.app.act_manage()
+        new = self.current()
+        self.assertIn("reverse_proxy 10.0.0.99:9000", new)
+        self.assertNotIn("10.0.0.5", new)
+        self.assertIn("# Service edited with caddy-tui", new)
+        self.assertNotIn("# Service added", new)
+        self.assertIn("{$DOMAIN} {", new)                 # el resto intacto
+        self.assertNotIn("app.example.com", captured["existing"])
+        self.assertIn("a.example.com", captured["existing"])
+
+    def test_cancelar_no_toca_nada(self):
+        seq = iter([1, 3])                                # ... "Cancel" (form, editor, remove, cancel)
+        self.app.pick = lambda t, i: next(seq)
+        self.app.act_manage()
+        self.assertEqual(self.current(), MANAGE_CADDYFILE)
+
+    def test_bloque_a_mano_no_ofrece_formulario(self):
+        offered = []
+        seq = iter([2, None])
+        def pick(title, items):
+            offered.append(items)
+            return next(seq)
+        self.app.pick = pick
+        self.app.act_manage()
+        self.assertEqual(len(offered[1]), 3)              # editor, remove, cancel
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
