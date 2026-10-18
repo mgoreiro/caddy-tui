@@ -10,8 +10,19 @@ No dependencies: just **Python 3.8+** (standard library, `curses`) and **Docker*
 
 ## Install
 
-Download the `.deb` from the [latest release](https://github.com/mgoreiro/caddy-tui/releases/latest)
-and install it (Debian, Ubuntu, Raspberry Pi OS, Armbian… — the package is architecture independent):
+### With apt (recommended: `apt upgrade` keeps it updated)
+
+Debian, Ubuntu, Raspberry Pi OS, Armbian… — the package is architecture independent. The repository is signed; the key fingerprint is `BA7E 2381 6880 1639 21BC  70DE 15C2 632D D390 10EE`.
+
+```bash
+curl -fsSL https://mgoreiro.github.io/caddy-tui/apt/caddy-tui.gpg | sudo tee /usr/share/keyrings/caddy-tui.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/caddy-tui.gpg] https://mgoreiro.github.io/caddy-tui/apt stable main" | sudo tee /etc/apt/sources.list.d/caddy-tui.list
+sudo apt update && sudo apt install caddy-tui
+```
+
+### From the release file
+
+Download the `.deb` from the [latest release](https://github.com/mgoreiro/caddy-tui/releases/latest) and install it (a `SHA256SUMS` file is next to it):
 
 ```bash
 sudo apt install ./caddy-tui_*_all.deb
@@ -191,6 +202,8 @@ make update-po   # sync the .po files with the .pot
 **Adding a language:** `cp po/caddy-tui.pot po/xx.po`, fill in the translations (header
 `Language: xx`), run `make mo`. The tests check that no string is missing or obsolete and that the
 `{placeholders}` match.
+
+**apt repository (maintainers):** publishing a GitHub release builds the `.deb` and also adds it to the signed repository on the `gh-pages` branch (`tools/update-apt-repo.sh`, key in the `APT_GPG_PRIVATE_KEY` secret, public key `apt/caddy-tui.gpg`). The key expires in 2029-10; to renew or rotate it, generate a new one, update the secret, publish a release and ask users to reinstall `caddy-tui.gpg`. `tests/apt_repo_smoke.sh` checks the script in CI.
 
 **Debian package:** `dpkg-buildpackage -us -uc -b` (needs `debhelper dh-python gettext python3`).
 Publishing a GitHub release triggers a workflow that builds the `.deb` and attaches it.

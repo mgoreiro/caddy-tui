@@ -1,5 +1,6 @@
 name: release
-# Builds the .deb and attaches it to the GitHub release when one is published.
+# Builds the .deb, attaches it to the GitHub release and publishes it to the signed apt repository
+# (https://mgoreiro.github.io/caddy-tui/apt) when a release is published.
 on:
   release:
     types: [published]
@@ -11,6 +12,11 @@ on:
 
 permissions:
   contents: write
+
+# One at a time: every run rewrites the apt repository (gh-pages branch).
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
 
 jobs:
   deb:
@@ -40,3 +46,26 @@ jobs:
           cd ..
           sha256sum caddy-tui_*_all.deb > SHA256SUMS
           gh release upload "$TAG" caddy-tui_*_all.deb SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: ci-tools
+          sparse-checkout: tools
+      - name: Publish to the apt repository
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "APT_GPG_PRIVATE_KEY is not set: skipping the apt repository"; exit 0
+          fi
+          sudo apt-get install -y apt-utils gnupg
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages
+          git worktree add ../apt-site -B gh-pages origin/gh-pages
+          ci-tools/tools/update-apt-repo.sh ../apt-site/apt ../caddy-tui_*_all.deb
+          cd ../apt-site
+          git add -A
+          if git diff --cached --quiet; then echo "nothing new to publish"; exit 0; fi
+          git commit -m "caddy-tui $TAG"
+          git push origin HEAD:gh-pages
