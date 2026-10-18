@@ -497,6 +497,23 @@ class SetupAndRemove(unittest.TestCase):
         self.assertEqual(self.sent[0][0], "99")
         self.assertIn("@mybot", out)
 
+    def test_con_varios_caddy_ofrece_vigilarlos_todos(self):
+        rows = [("my-caddy", "caddy:2", "running"), ("other", "caddy:2", "running")]
+        with mock.patch.object(c, "list_caddy_containers", return_value=rows):
+            self.run_setup(["", "", "y", "y", "n"])                 # chat found ; this chat ; monitor all ; no auto-block
+        env = c.read_env_file(self.env_path)
+        self.assertEqual(env["CADDY_ALL"], "1")
+        self.assertNotIn("CADDY_CONTAINER", env)                    # not pinned to one container
+        self.assertIn("--check --quiet --notify --all", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
+
+    def test_con_varios_caddy_se_puede_dejar_solo_uno(self):
+        rows = [("my-caddy", "caddy:2", "running"), ("other", "caddy:2", "running")]
+        with mock.patch.object(c, "list_caddy_containers", return_value=rows):
+            self.run_setup(["", "", "y", "n", "n"])
+        env = c.read_env_file(self.env_path)
+        self.assertEqual((env.get("CADDY_ALL"), env["CADDY_CONTAINER"]), (None, "my-caddy"))
+        self.assertNotIn("--all", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
+
     def test_con_autobloqueo(self):
         code, __ = self.run_setup(["", "", "y", "y", "7d"])
         env = c.read_env_file(self.env_path)
@@ -2100,6 +2117,197 @@ class DockerAvailability(unittest.TestCase):
         ok, calls, out = self.ensure(["stopped", "stopped"], start_rc=1)
         self.assertFalse(ok)
         self.assertIn("Could not start Docker", out)
+
+
+class SeveralCaddy(unittest.TestCase):
+    ROWS = [("web-caddy", "caddy:2-alpine", "running"), ("api-caddy", "caddy:2", "exited")]
+
+    def setUp(self):
+        self.snap = c.snapshot_config()
+        self.addCleanup(c.restore_config, self.snap)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        p = mock.patch.dict(os.environ, {"CADDY_TUI_STATE_DIR": self.tmp.name, "XDG_CONFIG_HOME": os.path.join(self.tmp.name, "cfg")}, clear=True)
+        p.start()
+        self.addCleanup(p.stop)
+        self.args = argparse.Namespace(container="x", caddyfile="/f", dir="/d", compose="/c", service="s", image="i", json=False,
+                                       quiet=False, notify=False)
+
+    def fake_configure(self, fail=()):
+        seen = []
+
+        def configure(ns):
+            seen.append(ns)
+            if ns.container in fail:
+                raise SystemExit(f"cannot configure {ns.container}")
+            c.CONTAINER, c.CADDYFILE = ns.container, f"/etc/{ns.container}/Caddyfile"
+        return configure, seen
+
+    def test_cambiar_de_caddy_ignora_las_opciones_del_primero(self):
+        fake, seen = self.fake_configure()
+        with mock.patch.object(c, "configure", side_effect=fake):
+            self.assertEqual(c.configure_other(self.args, "api-caddy"), (True, ""))
+        self.assertEqual(c.CONTAINER, "api-caddy")
+        ns = seen[0]
+        self.assertEqual((ns.container, ns.caddyfile, ns.dir, ns.compose, ns.service, ns.image), ("api-caddy", None, None, None, None, None))
+
+    def test_si_falla_se_queda_el_anterior(self):
+        c.CONTAINER, c.CADDYFILE = "web-caddy", "/etc/web/Caddyfile"
+        fake, __ = self.fake_configure(fail=("api-caddy",))
+        with mock.patch.object(c, "configure", side_effect=fake):
+            ok, msg = c.configure_other(self.args, "api-caddy")
+        self.assertEqual((ok, msg, c.CONTAINER, c.CADDYFILE), (False, "cannot configure api-caddy", "web-caddy", "/etc/web/Caddyfile"))
+
+    def run_all(self, codes, rows=None, fail=(), **kw):
+        fake, __ = self.fake_configure(fail=fail)
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS if rows is None else rows), \
+             mock.patch.object(c, "configure", side_effect=fake), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = c.run_for_all(self.args, lambda a: (print(f"ran {c.CONTAINER}"), codes[c.CONTAINER])[1], **kw)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_run_for_all_devuelve_el_peor_codigo(self):
+        code, out, __ = self.run_all({"web-caddy": 0, "api-caddy": 2})
+        self.assertEqual(code, 2)
+        self.assertIn("== web-caddy ==\nran web-caddy", out)
+        self.assertIn("== api-caddy ==\nran api-caddy", out)
+        self.assertFalse(c.MULTI)
+
+    def test_un_solo_caddy_no_pone_cabeceras(self):
+        code, out, __ = self.run_all({"web-caddy": 1}, rows=self.ROWS[:1])
+        self.assertEqual((code, out), (1, "ran web-caddy\n"))
+
+    def test_si_uno_no_se_puede_configurar_es_3_pero_sigue_con_los_demas(self):
+        code, out, err = self.run_all({"web-caddy": 0, "api-caddy": 0}, fail=("web-caddy",))
+        self.assertEqual(code, 3)
+        self.assertIn("ran api-caddy", out)
+        self.assertIn("cannot configure web-caddy", err)
+
+    def test_ninguno_es_3(self):
+        code, __, err = self.run_all({}, rows=[])
+        self.assertEqual(code, 3)
+        self.assertIn("No Caddy container", err)
+
+    def test_estado_de_alertas_separado_por_contenedor(self):
+        c.CONTAINER = "web-caddy"
+        a = c.state_path()
+        c.CONTAINER = "api/caddy"
+        b = c.state_path()
+        self.assertNotEqual(a, b)
+        self.assertTrue(b.endswith("alert-state-api_caddy.json"))
+
+    def test_estado_antiguo_compartido_se_lee_como_semilla(self):
+        with open(os.path.join(self.tmp.name, "alert-state.json"), "w") as f:
+            json.dump({"failing": True, "digest": "abc"}, f)
+        c.CONTAINER = "web-caddy"
+        self.assertEqual(c.read_alert_state()["digest"], "abc")
+        with open(c.state_path(), "w") as f:
+            json.dump({"failing": False}, f)
+        self.assertEqual(c.read_alert_state(), {"failing": False})               # the new file wins
+
+    def test_baneos_por_contenedor(self):
+        c.CONTAINER = "web-caddy"
+        c.register_ban("1.1.1.1", "scanner", 3600, now=1000)
+        c.CONTAINER = "api-caddy"
+        self.assertEqual(c.load_bans(), {})
+        c.register_ban("2.2.2.2", "scanner", 0, now=1000)
+        self.assertEqual(sorted(c.load_bans()), ["2.2.2.2"])
+        c.CONTAINER = "web-caddy"
+        self.assertEqual(sorted(c.load_bans()), ["1.1.1.1"])
+
+    def test_el_fichero_de_baneos_antiguo_lo_adopta_el_primero_que_lo_lee(self):
+        with open(c.bans_path(), "w") as f:
+            json.dump({"9.9.9.9": {"reason": "old", "ts": 1, "until": None}}, f)
+        c.CONTAINER = "web-caddy"
+        self.assertEqual(list(c.load_bans()), ["9.9.9.9"])
+        c.register_ban("1.1.1.1", "", 0, now=5)
+        self.assertEqual(sorted(c.load_bans()), ["1.1.1.1", "9.9.9.9"])
+        c.CONTAINER = "api-caddy"
+        self.assertEqual(c.load_bans(), {})
+
+    def test_las_notificaciones_llevan_el_nombre_del_contenedor_si_hay_varios(self):
+        os.environ.update(TELEGRAM_BOT_TOKEN="1:x", TELEGRAM_CHAT_ID="42")
+        sent = []
+        c.CONTAINER = "web-caddy"
+        items = [("err", "Port missing", [])]
+        with mock.patch.object(c, "telegram_send", side_effect=lambda t, ch, txt: sent.append(txt)):
+            c.notify_result(items, 2)
+            c.MULTI = True
+            try:
+                c.CONTAINER = "api-caddy"
+                c.notify_result(items, 2)
+            finally:
+                c.MULTI = False
+        self.assertNotIn("/web-caddy", sent[0])
+        self.assertIn("/api-caddy:", sent[1])
+
+    def test_run_check_recoge_el_json_en_vez_de_imprimirlo(self):
+        self.args.json = True
+        collected = []
+        c.CONTAINER = "web-caddy"
+        out = io.StringIO()
+        with mock.patch.object(c, "diagnose", return_value=([("ok", "fine", [])], set(), {})), contextlib.redirect_stdout(out):
+            code = c.run_check(self.args, collect=collected)
+        self.assertEqual((code, out.getvalue(), collected[0]["container"], collected[0]["status"]), (0, "", "web-caddy", "ok"))
+
+    def test_unidades_para_todos(self):
+        self.assertIn("ExecStart=/x --check --quiet --notify --all", c.render_service("/x", False, True))
+        self.assertIn("ExecStartPre=-/x --auto-block --all", c.render_service("/x", True, True))
+        self.assertNotIn("--all", c.render_service("/x", True, False))
+        cron = c.render_cron("/x", 30, True, True)
+        self.assertIn("/x --auto-block --all >/dev/null 2>&1; /x --check --quiet --notify --all", cron)
+
+    def test_print_caddies(self):
+        info = {"Mounts": [{"Destination": "/etc/caddy/Caddyfile", "Source": "/srv/web/Caddyfile"}]}
+        out = io.StringIO()
+        with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS), \
+             mock.patch.object(c, "inspect_container", side_effect=lambda n: info if n == "web-caddy" else None), \
+             contextlib.redirect_stdout(out):
+            self.assertEqual(c.print_caddies(), 0)
+        text = out.getvalue()
+        self.assertIn("web-caddy", text)
+        self.assertIn("/srv/web/Caddyfile", text)
+        self.assertIn("api-caddy", text)
+
+    def test_config_json_conserva_otras_claves(self):
+        c.update_config(lang="es")
+        c.update_config(container="web-caddy")
+        self.assertEqual(c.load_config(), {"lang": "es", "container": "web-caddy"})
+        self.assertEqual(c.load_saved_lang(), "es")
+
+    def test_eleccion_al_arrancar_recuerda_el_ultimo(self):
+        c.update_config(container="api-caddy")
+        out = io.StringIO()
+        args = argparse.Namespace(container=None, caddyfile=None, dir=None, compose=None, service=None, image=None)
+        with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS), mock.patch.object(c.sys.stdin, "isatty", return_value=True), \
+             mock.patch("builtins.input", return_value=""), mock.patch.object(c, "inspect_container", return_value=None), \
+             contextlib.redirect_stdout(out):
+            with self.assertRaises(SystemExit):
+                c.configure(args)                                  # inspect fails: we only look at who was chosen
+        self.assertIn("2) api-caddy", out.getvalue())
+        self.assertIn("←", out.getvalue().split("2) api-caddy")[1].splitlines()[0])
+
+    def test_act_switch(self):
+        app = c.App.__new__(c.App)
+        shown = []
+        app.show = lambda title, text: shown.append((title, text))
+        app.refresh_state = lambda force=False: None
+        app.args = self.args
+        c.CONTAINER = "web-caddy"
+        fake, __ = self.fake_configure()
+        with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS), mock.patch.object(c, "configure", side_effect=fake):
+            app.pick = lambda title, items: (self.assertTrue(items[0].startswith("● ")), 1)[1]       # the active one is marked
+            app.act_switch()
+        self.assertEqual(c.CONTAINER, "api-caddy")
+        self.assertIn("Now managing api-caddy", shown[-1][1])
+        self.assertEqual(c.load_config()["container"], "api-caddy")
+        # choosing the active one does nothing; a single Caddy explains it
+        app.pick = lambda title, items: 1
+        with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS):
+            app.act_switch()
+        with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS[:1]):
+            app.act_switch()
+        self.assertIn("Only one Caddy", shown[-1][1])
 
 
 class Translations(unittest.TestCase):

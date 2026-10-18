@@ -1,3 +1,16 @@
+caddy-tui (1.8.0) unstable; urgency=medium
+
+  * Several Caddy containers on one machine: at startup the last one used is
+    the default choice, [S] switches to another one inside the program (the
+    header shows "2/3 Caddy containers"), --list shows them all, and --check,
+    --notify and --auto-block accept --all (grouped output, worst exit code,
+    JSON with a "containers" list, Telegram messages labelled host/container).
+    --setup-alerts asks whether to monitor all of them.
+  * Alert state and scanner bans are now kept per container (the old shared
+    files are read as a starting point).
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Mon, 19 Oct 2026 09:00:00 +0200
+
 caddy-tui (1.7.1) unstable; urgency=medium
 
   * Docker installed but unusable is now told apart from "no Caddy found":
