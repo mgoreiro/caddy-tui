@@ -43,6 +43,7 @@ import queue
 import re
 import shutil
 import socket
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -56,7 +57,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -191,6 +192,7 @@ MENU = [
     ("d", N_("Diagnostics & repair")),
     ("h", N_("HTTPS certificates")),
     ("p", N_("Probe services")),
+    ("w", N_("Traffic statistics")),
     ("y", N_("Update Caddy image")),
     ("e", N_("Edit Caddyfile")),
     ("v", N_("Validate configuration")),
@@ -1815,9 +1817,10 @@ def notify_result(items, code):
         print(e, file=sys.stderr)
 
 
-def render_service(command, auto_block=False, all_containers=False):
+def render_service(command, auto_block=False, all_containers=False, stats=False):
     every = " --all" if all_containers else ""
     pre = f"ExecStartPre=-{command} --auto-block{every}\n" if auto_block else ""
+    pre += f"ExecStartPre=-{command} --collect-stats --quiet{every}\n" if stats else ""
     return f"""[Unit]
 Description=Check the Caddy container with caddy-tui
 Documentation=man:caddy-tui(1)
@@ -1853,9 +1856,10 @@ def cron_schedule(minutes):
     return "0 0 * * *" if hours >= 24 else f"0 */{hours} * * *"
 
 
-def render_cron(command, minutes, auto_block=False, all_containers=False):
+def render_cron(command, minutes, auto_block=False, all_containers=False, stats=False):
     every = " --all" if all_containers else ""
     pre = f"{command} --auto-block{every} >/dev/null 2>&1; " if auto_block else ""
+    pre += f"{command} --collect-stats --quiet{every} >/dev/null 2>&1; " if stats else ""
     return (f"# caddy-tui: periodic Caddy check with Telegram alerts\nSHELL=/bin/sh\n"
             f"{cron_schedule(minutes)} root {pre}{command} --check --quiet --notify{every} >/dev/null 2>&1\n")
 
@@ -1934,6 +1938,7 @@ def setup_alerts(args):
     others = list_caddy_containers()
     all_containers = len(others) > 1 and ask_yes(
         _("There are {n} Caddy containers on this machine. Monitor all of them (not only {name})?").format(n=len(others), name=CONTAINER), True)
+    keep_stats = ask_yes(_("Also keep traffic statistics (hourly totals per site and busiest addresses, kept 90 days)?"), True)
     auto_block, ban_time = ask_yes(_("Also ban scanners automatically, like fail2ban? (only public addresses; bans expire)"), False), "24h"
     if auto_block:
         ban_time = ask_line(_("Ban length (e.g. 24h, 7d; 0 = permanent)"), "24h")
@@ -1946,14 +1951,14 @@ def setup_alerts(args):
               "CADDY_TUI_LANG": LANG, "ALERT_ON_WARNINGS": "1" if on_warn else "0",
               "CADDY_CADDYFILE": args.caddyfile or "", "CADDY_DIR": args.dir or "",
               "CADDY_COMPOSE": args.compose or "", "CADDY_SERVICE": args.service or "",
-              "CADDY_ALL": "1" if all_containers else "", "AUTOBLOCK": "1" if auto_block else "", "AUTOBLOCK_BAN": ban_time if auto_block else "",
+              "CADDY_ALL": "1" if all_containers else "", "STATS": "1" if keep_stats else "", "AUTOBLOCK": "1" if auto_block else "", "AUTOBLOCK_BAN": ban_time if auto_block else "",
               "AUTOBLOCK_WINDOW": f"{minutes}m" if auto_block else ""}
     write_env_file(ALERT_ENV, values)
     print(_("Saved {path} (mode 600).").format(path=ALERT_ENV))
 
     command = _program_command()
     if _systemd_available():
-        for name, text in ((UNIT_NAME + ".service", render_service(command, auto_block, all_containers)), (UNIT_NAME + ".timer", render_timer(minutes))):
+        for name, text in ((UNIT_NAME + ".service", render_service(command, auto_block, all_containers, keep_stats)), (UNIT_NAME + ".timer", render_timer(minutes))):
             with open(os.path.join(SYSTEMD_DIR, name), "w", encoding="utf-8") as f:
                 f.write(text)
         for cmd in (["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", UNIT_NAME + ".timer"]):
@@ -1964,7 +1969,7 @@ def setup_alerts(args):
             minutes=minutes, unit=UNIT_NAME))
     else:
         with open(CRON_FILE, "w", encoding="utf-8") as f:
-            f.write(render_cron(command, minutes, auto_block, all_containers))
+            f.write(render_cron(command, minutes, auto_block, all_containers, keep_stats))
         print(_("No systemd found: cron job written to {path} (every {minutes} min).").format(path=CRON_FILE, minutes=minutes))
 
     host = socket.gethostname()
@@ -2738,6 +2743,208 @@ def import_flow(args, bundle):
     if "alert.env" in files or "bans.json" in files:
         print(_("The export also had alerts / bans settings. Run: sudo caddy-tui --setup-alerts to set the periodic check up again."))
     return name
+
+
+# -------------------------------------------------------------- statistics ---
+STATS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS hourly (container TEXT, hour INTEGER, host TEXT, requests INTEGER, bytes INTEGER,
+  s2 INTEGER, s3 INTEGER, s4 INTEGER, s5 INTEGER, dur_sum REAL, dur_max REAL, PRIMARY KEY (container, hour, host));
+CREATE TABLE IF NOT EXISTS daily_ips (container TEXT, day INTEGER, ip TEXT, requests INTEGER, errors INTEGER,
+  PRIMARY KEY (container, day, ip));
+CREATE TABLE IF NOT EXISTS meta (container TEXT, key TEXT, value REAL, PRIMARY KEY (container, key));
+"""
+STATS_PERIODS = {"24h": 86400, "7d": 7 * 86400, "30d": 30 * 86400, "90d": 90 * 86400}
+
+
+def stats_path():
+    return os.path.join(os.path.dirname(bans_path()), "stats.sqlite3")
+
+
+def stats_db(path=None):
+    """Open (creating it, mode 600: it holds client addresses) the statistics database."""
+    path = path or stats_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    new = not os.path.exists(path)
+    db = sqlite3.connect(path, timeout=30)
+    db.executescript(STATS_SCHEMA)
+    if new:
+        os.chmod(path, 0o600)
+    return db
+
+
+def aggregate_events(events, since_ts=0.0):
+    """Access events -> ({(hour, host): [req, bytes, 2xx, 3xx, 4xx, 5xx, dur_sum, dur_max]}, {(day, ip): [req, errors]}, last_ts, n)."""
+    hourly, ips, last, n = {}, {}, since_ts, 0
+    for ts, host, __, __, ip, status, size, dur in events:
+        if ts <= since_ts:
+            continue
+        n += 1
+        last = max(last, ts)
+        h = hourly.setdefault((int(ts // 3600) * 3600, host), [0, 0, 0, 0, 0, 0, 0.0, 0.0])
+        h[0] += 1
+        h[1] += size
+        if 200 <= status < 600:
+            h[status // 100] += 1
+        h[6] += dur
+        h[7] = max(h[7], dur)
+        i = ips.setdefault((int(ts // 86400) * 86400, ip), [0, 0])
+        i[0] += 1
+        i[1] += 1 if status >= 400 else 0
+    return hourly, ips, last, n
+
+
+def store_aggregates(db, container, hourly, ips, last_ts):
+    with db:
+        for (hour, host), v in hourly.items():
+            db.execute("""INSERT INTO hourly VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(container, hour, host) DO UPDATE SET
+                          requests=requests+excluded.requests, bytes=bytes+excluded.bytes, s2=s2+excluded.s2, s3=s3+excluded.s3,
+                          s4=s4+excluded.s4, s5=s5+excluded.s5, dur_sum=dur_sum+excluded.dur_sum, dur_max=MAX(dur_max, excluded.dur_max)""",
+                       (container, hour, host, *v))
+        for (day, ip), v in ips.items():
+            db.execute("""INSERT INTO daily_ips VALUES (?,?,?,?,?) ON CONFLICT(container, day, ip) DO UPDATE SET
+                          requests=requests+excluded.requests, errors=errors+excluded.errors""", (container, day, ip, *v))
+        if last_ts:
+            db.execute("INSERT INTO meta VALUES (?, 'cursor', ?) ON CONFLICT(container, key) DO UPDATE SET value=excluded.value",
+                       (container, last_ts))
+
+
+def prune_stats(db, now=None, hourly_days=90, ip_days=30):
+    now = time.time() if now is None else now
+    with db:
+        db.execute("DELETE FROM hourly WHERE hour < ?", (now - hourly_days * 86400,))
+        db.execute("DELETE FROM daily_ips WHERE day < ?", (now - ip_days * 86400,))
+
+
+def iter_access_events(since=None):
+    """Stream the access-log events of the container (`since` = unix time, or None for everything the container still has)."""
+    cmd = ["docker", "logs"] + (["--since", str(int(since))] if since else []) + [CONTAINER]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=BASE)
+    try:
+        for line in proc.stdout:
+            event = parse_access_line(line)
+            if event:
+                yield event
+    finally:
+        proc.stdout.close()
+        proc.wait()
+
+
+def collect_stats(db=None, events=None, now=None):
+    """Fold the access log since the last run into the database. -> number of requests counted."""
+    own = db is None
+    db = db or stats_db()
+    try:
+        row = db.execute("SELECT value FROM meta WHERE container=? AND key='cursor'", (CONTAINER,)).fetchone()
+        cursor = row[0] if row else 0.0
+        keep_from = (time.time() if now is None else now) - 90 * 86400
+        if events is None:
+            events = iter_access_events(cursor or None)
+        hourly, ips, last, n = aggregate_events((e for e in events if e[0] >= keep_from), cursor)
+        store_aggregates(db, CONTAINER, hourly, ips, last)
+        prune_stats(db, now)
+        return n
+    finally:
+        if own:
+            db.close()
+
+
+def stats_report(db, container, start, end):
+    """Numbers for [start, end): totals, per hour, per site, top addresses and the span of data available."""
+    q = lambda sql, *a: db.execute(sql, a).fetchall()
+    by_hour = q("""SELECT hour, SUM(requests), SUM(bytes), SUM(s2), SUM(s3), SUM(s4), SUM(s5), SUM(dur_sum), MAX(dur_max)
+                   FROM hourly WHERE container=? AND hour>=? AND hour<? GROUP BY hour ORDER BY hour""", container, start, end)
+    by_site = q("""SELECT host, SUM(requests), SUM(bytes), SUM(s4), SUM(s5), SUM(dur_sum) FROM hourly
+                   WHERE container=? AND hour>=? AND hour<? GROUP BY host ORDER BY 2 DESC""", container, start, end)
+    top_ips = q("""SELECT ip, SUM(requests), SUM(errors) FROM daily_ips WHERE container=? AND day>=? AND day<?
+                   GROUP BY ip ORDER BY 2 DESC LIMIT 10""", container, int(start // 86400) * 86400, end)
+    span = q("SELECT MIN(hour), MAX(hour) FROM hourly WHERE container=?", container)[0]
+    t = [sum(r[i] or 0 for r in by_hour) for i in range(1, 8)]
+    return {"requests": t[0], "bytes": t[1], "s2": t[2], "s3": t[3], "s4": t[4], "s5": t[5], "dur_sum": t[6],
+            "dur_max": max([r[8] or 0 for r in by_hour], default=0), "by_hour": by_hour, "by_site": by_site,
+            "top_ips": top_ips, "first": span[0], "last": span[1]}
+
+
+def _pct(part, total):
+    return f"{100 * part / total:.1f}%" if total else "0%"
+
+
+def _bar(value, peak, width=24):
+    return "█" * (max(1, round(width * value / peak)) if value and peak else 0)
+
+
+def render_stats(rep, label, hourly_rows):
+    """Text of the report. `hourly_rows` = True to list hours (24 h), False to group by local day."""
+    n = rep["requests"]
+    if not n:
+        return _("No data for this period yet.")
+    avg = rep["dur_sum"] / n * 1000
+    peak = max(rep["by_hour"], key=lambda r: r[1])
+    out = [label, "",
+           _("Requests: {n} · Traffic sent: {size} · Avg latency: {avg:.0f} ms (max {mx:.0f} ms)").format(
+               n=f"{n:,}", size=human_bytes(rep["bytes"]), avg=avg, mx=rep["dur_max"] * 1000),
+           _("Status: 2xx {a} ({ap}) · 3xx {b} · 4xx {c} ({cp}) · 5xx {d} ({dp})").format(
+               a=f"{rep['s2']:,}", ap=_pct(rep["s2"], n), b=f"{rep['s3']:,}", c=f"{rep['s4']:,}", cp=_pct(rep["s4"], n),
+               d=f"{rep['s5']:,}", dp=_pct(rep["s5"], n)),
+           _("Busiest hour: {when} · {n} requests").format(when=datetime.fromtimestamp(peak[0]).strftime("%Y-%m-%d %H:00"), n=f"{peak[1]:,}"),
+           ""]
+    buckets = {}
+    for hour, req, __, __, __, s4, s5, __, __ in rep["by_hour"]:
+        d = datetime.fromtimestamp(hour)
+        key = d.strftime("%Y-%m-%d %H:00") if hourly_rows else d.strftime("%Y-%m-%d")
+        b = buckets.setdefault(key, [0, 0, 0])
+        b[0] += req
+        b[1] += s4
+        b[2] += s5
+    top = max(b[0] for b in buckets.values())
+    out.append(_("Requests per hour") if hourly_rows else _("Requests per day"))
+    for key, (req, s4, s5) in buckets.items():
+        out.append(f"  {key}  {_bar(req, top):<24} {req:>8,}   4xx {s4:,} · 5xx {s5:,}")
+    out += ["", _("Sites")]
+    for host, req, size, s4, s5, dsum in rep["by_site"][:15]:
+        out.append(f"  {host:<34} {req:>9,} ({_pct(req, n):>6})  avg {dsum / req * 1000:.0f} ms  4xx {_pct(s4, req)}  5xx {_pct(s5, req)}  {human_bytes(size)}")
+    if rep["top_ips"]:
+        out += ["", _("Busiest client addresses (counted by UTC day)")]
+        out += [_("  {ip:<40} {n:>8,} requests · {e:,} errors").format(ip=ip, n=r, e=e) for ip, r, e in rep["top_ips"]]
+    out += ["", _("Data available: {a} → {b}").format(a=datetime.fromtimestamp(rep["first"]).strftime("%Y-%m-%d %H:00"),
+                                                     b=datetime.fromtimestamp(rep["last"]).strftime("%Y-%m-%d %H:00"))]
+    return "\n".join(out)
+
+
+def period_report(period, now=None):
+    """-> (report dict, text) for "24h" / "7d" / "30d" / "90d" and the active container, after collecting what is new."""
+    now = time.time() if now is None else now
+    db = stats_db()
+    try:
+        collect_stats(db, now=now)
+        end = int(now // 3600) * 3600 + 3600
+        rep = stats_report(db, CONTAINER, end - STATS_PERIODS[period], end)
+    finally:
+        db.close()
+    label = _("Traffic statistics · last {period} · {name}").format(period=period, name=CONTAINER)
+    return rep, render_stats(rep, label, period == "24h")
+
+
+def run_stats(args):
+    """--stats [PERIOD]: print the report (or JSON)."""
+    period = args.stats if args.stats in STATS_PERIODS else "7d"
+    rep, text = period_report(period)
+    if args.json:
+        slim = {k: v for k, v in rep.items() if k not in ("by_hour", "by_site", "top_ips")}
+        slim.update(container=CONTAINER, period=period,
+                    sites=[{"host": h, "requests": r, "bytes": b, "s4": s4, "s5": s5} for h, r, b, s4, s5, __ in rep["by_site"]],
+                    top_ips=[{"ip": ip, "requests": r, "errors": e} for ip, r, e in rep["top_ips"]],
+                    hours=[{"hour": h, "requests": r} for h, r, *__ in rep["by_hour"]])
+        print(json.dumps(slim, ensure_ascii=False, indent=2))
+    else:
+        print(text)
+    return 0
+
+
+def run_collect_stats(args):
+    n = collect_stats()
+    if not getattr(args, "quiet", False):
+        print(_("Statistics updated: {n} new request(s) counted for {name}.").format(n=n, name=CONTAINER))
+    return 0
 
 
 # --------------------------------------------------------------------- UI ----
@@ -3844,6 +4051,19 @@ class App:
         self.show(_("Switch Caddy"), "✔ " + _("Now managing {name}.").format(name=CONTAINER) + "\n"
                   + _("Caddyfile: {path}").format(path=CADDYFILE))
 
+    def act_stats(self):
+        state, __ = container_state()
+        if state == "missing":
+            self.show(_("Traffic statistics"), _("The container does not exist."))
+            return
+        periods = [("24h", _("Last 24 hours (per hour)")), ("7d", _("Last 7 days")), ("30d", _("Last 30 days")), ("90d", _("Last 90 days"))]
+        i = self.pick(_("Traffic statistics"), [label for __, label in periods])
+        if i is None:
+            return
+        self.busy(_("Reading the access log and updating the statistics..."))
+        __, text = period_report(periods[i][0])
+        self.show(_("Traffic statistics"), text)
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -3854,7 +4074,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "y": self.act_image, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "w": self.act_stats, "y": self.act_image, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "o": self.act_export, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),
@@ -3930,6 +4150,10 @@ def parse_args():
     ap.add_argument("--with-alerts", action="store_true", help=_("with --export: include the alerts settings (Telegram token)"))
     ap.add_argument("--import", dest="import_file", metavar="FILE", help=_("restore an export made with --export into a new Caddy in Docker"))
     ap.add_argument("-y", "--yes", action="store_true", help=_("with --import: do not ask for confirmation"))
+    ap.add_argument("--stats", nargs="?", const="7d", metavar="PERIOD", help=_(
+        "print the traffic statistics of a period (24h, 7d, 30d, 90d; default 7d); --json for machines"))
+    ap.add_argument("--collect-stats", action="store_true", help=_(
+        "fold the access log since the last run into the statistics database, then exit (for the periodic timer)"))
     ap.add_argument("--all", action="store_true", help=_(
         "with --check / --auto-block: run for every Caddy container on this machine (exit code = the worst one)"))
     ap.add_argument("--list", action="store_true", help=_("list the Caddy containers found on this machine and exit"))
@@ -3938,7 +4162,7 @@ def parse_args():
 
 
 def main():
-    if "--notify" in sys.argv or "--auto-block" in sys.argv:
+    if "--notify" in sys.argv or "--auto-block" in sys.argv or "--collect-stats" in sys.argv:
         load_alert_env()
     args = parse_args()
     if args.notify:
@@ -3966,6 +4190,16 @@ def main():
         sys.exit(3 if (args.check or args.auto_block) else 1)
     if args.list:
         sys.exit(print_caddies())
+    if args.stats is not None or args.collect_stats:
+        func = run_collect_stats if args.collect_stats else run_stats
+        if args.all:
+            sys.exit(run_for_all(args, func))
+        try:
+            configure(args)
+        except SystemExit as e:
+            print(e.code, file=sys.stderr)
+            sys.exit(3)
+        sys.exit(func(args))
     if args.all and (args.check or args.auto_block):
         collect = [] if (args.json and not args.auto_block) else None
         code = run_for_all(args, run_auto_block if args.auto_block else (lambda a: run_check(a, collect)), collect)

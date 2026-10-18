@@ -1,3 +1,15 @@
+caddy-tui (1.9.0) unstable; urgency=medium
+
+  * Traffic statistics: [w] and --stats [24h|7d|30d|90d] show requests, traffic,
+    latency, status classes, busiest hour, per hour/day bars, per-site lines and
+    busiest client addresses over time. --collect-stats folds the access log
+    since the last run into a SQLite database (hourly totals per site kept 90
+    days, daily counts per address 30 days, mode 600); the screen collects
+    first and --setup-alerts can run the collection on every check.
+    Works per container and with --all.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Mon, 19 Oct 2026 12:00:00 +0200
+
 caddy-tui (1.8.0) unstable; urgency=medium
 
   * Several Caddy containers on one machine: at startup the last one used is

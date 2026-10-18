@@ -138,7 +138,7 @@ caddy-tui --lang es             # Spanish interface (or press L inside the progr
 - It **detects your Caddy container by itself** (and its Caddyfile, image and docker compose project). See [Usage](../README.md#usage) to force any value.
 - What the package installs: `dpkg -L caddy-tui` — the program (`/usr/bin/caddy-tui`), the manual, the Spanish catalogue and the documentation.
 - What it creates later: `~/.config/caddy-tui/` (language preference), `.caddy-backups/` next to your configuration (backups), and, if you enable
-  alerts, `/etc/caddy-tui/` and `/var/lib/caddy-tui/`.
+  alerts, `/etc/caddy-tui/` and `/var/lib/caddy-tui/` (which also holds the traffic statistics database, `stats.sqlite3`, and the scanner bans).
 
 ## Updating
 

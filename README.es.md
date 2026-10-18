@@ -12,7 +12,7 @@ ver el tráfico en vivo y diagnosticar los problemas típicos.
 
 Sin dependencias: solo **Python 3.8+** (librería estándar, `curses`) y **Docker**.
 
-**Contenido:** [Instalación](#instalación) · [¿Aún no tienes Caddy?](#aún-no-tienes-caddy-caddy-tui-lo-instala) · [Llevar la configuración a otro servidor](#llevar-la-configuración-a-otro-servidor---export----import) · [Uso](#uso) · [Varios Caddy](#varios-caddy-en-la-misma-máquina) · [Idioma](#idioma) · [Funciones](#funciones) · [Monitorización y alertas](#monitorización-y-alertas---check) · [Desarrollo](#desarrollo) · [Documentación](#documentación)
+**Contenido:** [Instalación](#instalación) · [¿Aún no tienes Caddy?](#aún-no-tienes-caddy-caddy-tui-lo-instala) · [Llevar la configuración a otro servidor](#llevar-la-configuración-a-otro-servidor---export----import) · [Uso](#uso) · [Estadísticas](#estadísticas-de-tráfico) · [Varios Caddy](#varios-caddy-en-la-misma-máquina) · [Idioma](#idioma) · [Funciones](#funciones) · [Monitorización y alertas](#monitorización-y-alertas---check) · [Desarrollo](#desarrollo) · [Documentación](#documentación)
 
 ## Instalación
 
@@ -109,6 +109,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 | `m` | **Gestionar servicios**: lista los sitios del Caddyfile y permite **editar** (con el mismo formulario del asistente si el bloque es de los que el asistente podría haber escrito; si no, en tu editor, solo ese bloque) o **eliminar** uno. Todo se valida en el contexto del fichero completo y con copia previa |
 | `i` | **IPs bloqueadas**: bloquea una IP o un rango (CIDR) en todos los sitios, desbloquea, revisa direcciones sospechosas (ver *Banear escáneres*) o reaplica la lista a todos los sitios. Escribe un snippet y un `import` como primera línea de cada sitio, validado y con copia previa como cualquier cambio; las conexiones bloqueadas se cortan (`abort`). Se rechazan loopback y rangos más amplios que /8, y una dirección privada (LAN) pide una confirmación extra. En el monitor de tráfico, `b` te deja elegir una de las direcciones más activas y bloquearla. Los sitios nuevos o editados conservan la protección automáticamente |
 | `y` | **Actualizar la imagen de Caddy**: compara el digest de la imagen que usa el contenedor con el que sirve el registro para la misma etiqueta (Docker Hub, GHCR, Quay…, de forma anónima) y ofrece **descargarla y recrear Caddy**. Antes de recrear valida tu Caddyfile con la nueva versión, así que una versión incompatible nunca tumba el sitio; además te indica a qué imagen volver. Detecta una imagen ya descargada pero sin aplicar. El diagnóstico avisa cuando hay una actualización (resultado en caché 6 h) |
+| `w` | **Estadísticas de tráfico** de las últimas 24 h / 7 / 30 / 90 días (ver *Estadísticas de tráfico*) |
 | `p` | **Probar servicios**: hace una petición a cada sitio con nombre del Caddyfile e indica el estado HTTP, el tiempo de respuesta y la validez del certificado. Dos comprobaciones por sitio: *local* (directa al Caddy de esta máquina con el nombre del sitio, verificando el certificado) y *pública* (por DNS como un cliente; si falla solo es un aviso porque puede ser hairpin NAT). El diagnóstico (y con él `--check` y las alertas) hace también la local, así que un `502` o un certificado caducado generan alerta |
 | `t` | **Monitor de tráfico** en vivo: peticiones/s, códigos 2xx–5xx, latencia, gráfica, top dominios e IPs y últimas peticiones (`p` pausa, `w` ventana 1/5/15 min). Requiere `log` en el sitio |
 | `d` | **Diagnóstico y reparación** (ver abajo) |
@@ -140,6 +141,20 @@ Cada problema explica su solución y la TUI ofrece aplicarla: parchea el `docker
 (puertos, `extra_hosts`, redes externas; idempotente, validado con `docker compose config`
 y con copia previa) y recrea solo Caddy con `--no-deps`. Si no puede escribir en el
 compose, te muestra el fragmento YAML para pegarlo a mano.
+
+## Estadísticas de tráfico
+
+`w` (o `caddy-tui --stats [24h|7d|30d|90d]`) muestra cómo se han usado tus sitios **a lo largo del tiempo**, no solo los últimos minutos como el monitor en vivo:
+peticiones, tráfico enviado, latencia media y máxima, reparto de 2xx/3xx/4xx/5xx, la hora más activa, una barra por hora (últimas 24 h) o por día, una línea por
+sitio (peticiones, porcentaje, latencia, tasas de error, tráfico) y las direcciones de cliente más activas.
+
+- **Cómo funciona**: `caddy-tui --collect-stats` incorpora el log de accesos de Caddy **desde la última ejecución** a una pequeña base de datos SQLite
+  (`/var/lib/caddy-tui/stats.sqlite3`, o `~/.local/state/caddy-tui/` si no se puede escribir; modo 600 porque contiene direcciones de clientes).
+  Al abrir la pantalla se recoge primero lo nuevo. `sudo caddy-tui --setup-alerts` ofrece ejecutar la recogida en cada comprobación, lo que mantiene completo el historial
+  aunque se recree el contenedor (Docker descarta los logs de un contenedor al recrearlo).
+- **Qué se guarda**: totales por hora y sitio durante **90 días** y recuentos diarios por dirección de cliente durante **30 días**; nada más (ni URLs ni user agents).
+  La latencia es la media y el máximo (no percentiles). Necesita la directiva `log` en los sitios.
+- **Para scripts**: `--stats 7d --json`; `--all` para todos los Caddy; cada contenedor tiene su propio historial.
 
 ## Monitorización y alertas (`--check`)
 

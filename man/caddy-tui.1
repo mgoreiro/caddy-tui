@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.8.0" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.9.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -97,6 +97,16 @@ List the Caddy containers found on this machine (state, image, Caddyfile) and ex
 .B \-\-all
 With \fB\-\-check\fR, \fB\-\-notify\fR or \fB\-\-auto\-block\fR: run for every Caddy container; the exit code is the worst one.
 .TP
+.BR \-\-stats " [" \fIPERIOD\fR ]
+Print the traffic statistics of a period (24h, 7d, 30d, 90d; default 7d); with
+.B \-\-json
+for machines. They come from a local SQLite database fed by
+.B \-\-collect\-stats
+(access log since the last run).
+.TP
+.B \-\-collect\-stats
+Fold the access log since the last run into the statistics database and exit.
+.TP
 .B \-\-version
 Show the version and exit.
 .SH EXIT STATUS
@@ -122,6 +132,9 @@ Blocked IPs: block or unblock an IP or CIDR range on every site (snippet plus an
 .TP
 .B y
 Update the Caddy image: check the registry for a newer one, pull it, validate the Caddyfile with it and recreate the container.
+.TP
+.B w
+Traffic statistics over the last 24 hours to 90 days.
 .TP
 .B p
 Probe services: request every named site and report status, time and certificate.
@@ -188,6 +201,11 @@ Periodic check (or \fI/etc/cron.d/caddy-tui-check\fR without systemd).
 .I /var/lib/caddy-tui/bans.json
 Reason and expiry of every ban made by caddy-tui (or \fI~/.local/state/caddy-tui/\fR when not writable).
 The variable AUTOBLOCK_ALLOW (comma separated IPs or CIDR ranges) exempts addresses from automatic bans.
+.SH FILES (STATISTICS)
+.TP
+.I /var/lib/caddy-tui/stats.sqlite3
+Hourly totals per site (90 days) and daily counts per client address (30 days), mode 600
+(or \fI~/.local/state/caddy-tui/\fR when not writable).
 .SH ENVIRONMENT
 .TP
 .B EDITOR

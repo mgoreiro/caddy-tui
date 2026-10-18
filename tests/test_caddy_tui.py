@@ -485,7 +485,7 @@ class SetupAndRemove(unittest.TestCase):
 
     def test_configura_servicio_timer_y_mensaje(self):
         # chat id vacío -> se detecta; Enter; acepta el chat encontrado
-        code, out = self.run_setup(["", "", "y", "n"])
+        code, out = self.run_setup(["", "", "y", "y", "n"])
         self.assertEqual(code, 0)
         env = c.read_env_file(self.env_path)
         self.assertEqual((env["TELEGRAM_BOT_TOKEN"], env["TELEGRAM_CHAT_ID"], env["CADDY_CONTAINER"], env["ALERT_ON_WARNINGS"]),
@@ -500,7 +500,7 @@ class SetupAndRemove(unittest.TestCase):
     def test_con_varios_caddy_ofrece_vigilarlos_todos(self):
         rows = [("my-caddy", "caddy:2", "running"), ("other", "caddy:2", "running")]
         with mock.patch.object(c, "list_caddy_containers", return_value=rows):
-            self.run_setup(["", "", "y", "y", "n"])                 # chat found ; this chat ; monitor all ; no auto-block
+            self.run_setup(["", "", "y", "y", "y", "n"])            # chat found ; this chat ; monitor all ; stats ; no auto-block
         env = c.read_env_file(self.env_path)
         self.assertEqual(env["CADDY_ALL"], "1")
         self.assertNotIn("CADDY_CONTAINER", env)                    # not pinned to one container
@@ -509,25 +509,33 @@ class SetupAndRemove(unittest.TestCase):
     def test_con_varios_caddy_se_puede_dejar_solo_uno(self):
         rows = [("my-caddy", "caddy:2", "running"), ("other", "caddy:2", "running")]
         with mock.patch.object(c, "list_caddy_containers", return_value=rows):
-            self.run_setup(["", "", "y", "n", "n"])
+            self.run_setup(["", "", "y", "n", "y", "n"])
         env = c.read_env_file(self.env_path)
         self.assertEqual((env.get("CADDY_ALL"), env["CADDY_CONTAINER"]), (None, "my-caddy"))
         self.assertNotIn("--all", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
 
     def test_con_autobloqueo(self):
-        code, __ = self.run_setup(["", "", "y", "y", "7d"])
+        code, __ = self.run_setup(["", "", "y", "y", "y", "7d"])
         env = c.read_env_file(self.env_path)
         self.assertEqual((env["AUTOBLOCK"], env["AUTOBLOCK_BAN"], env["AUTOBLOCK_WINDOW"]), ("1", "7d", "30m"))
         self.assertIn("ExecStartPre=-", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
 
     def test_sin_autobloqueo_no_hay_variables(self):
-        self.run_setup(["", "", "y", "n"])
+        self.run_setup(["", "", "y", "y", "n"])
         self.assertNotIn("AUTOBLOCK", c.read_env_file(self.env_path))
-        self.assertNotIn("ExecStartPre", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
+        unit = slurp(os.path.join(self.sysd, "caddy-tui-check.service"))
+        self.assertNotIn("--auto-block", unit)
+        self.assertIn("--collect-stats --quiet", unit)                      # statistics were accepted
+        self.assertEqual(c.read_env_file(self.env_path)["STATS"], "1")
+
+    def test_sin_estadisticas(self):
+        self.run_setup(["", "", "y", "n", "n"])
+        self.assertNotIn("STATS", c.read_env_file(self.env_path))
+        self.assertNotIn("--collect-stats", slurp(os.path.join(self.sysd, "caddy-tui-check.service")))
 
     def test_sin_systemd_usa_cron(self):
         with mock.patch.object(c, "_systemd_available", return_value=False):
-            self.run_setup(["", "", "y", "n"])
+            self.run_setup(["", "", "y", "y", "n"])
         self.assertIn("*/30 * * * *", slurp(c.CRON_FILE))
         self.assertEqual(os.listdir(self.sysd), [])
 
@@ -542,7 +550,7 @@ class SetupAndRemove(unittest.TestCase):
         self.assertFalse(os.path.exists(self.env_path))
 
     def test_quitar(self):
-        self.run_setup(["", "", "y", "n"])
+        self.run_setup(["", "", "y", "y", "n"])
         with mock.patch("builtins.input", return_value="y"), contextlib.redirect_stdout(io.StringIO()):
             c.remove_alerts(self.args)
         self.assertEqual(os.listdir(self.sysd), [])
@@ -2308,6 +2316,142 @@ class SeveralCaddy(unittest.TestCase):
         with mock.patch.object(c, "list_caddy_containers", return_value=self.ROWS[:1]):
             app.act_switch()
         self.assertIn("Only one Caddy", shown[-1][1])
+
+
+def sev(ts, host="a.example.com", ip="45.83.64.7", status=200, size=100, dur=0.01, uri="/"):
+    return (ts, host, "GET", uri, ip, status, size, dur)
+
+
+class Statistics(unittest.TestCase):
+    H = 3600
+    T0 = 1_760_000_000 // 3600 * 3600          # an exact hour
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        p = mock.patch.dict(os.environ, {"CADDY_TUI_STATE_DIR": self.tmp.name}, clear=True)
+        p.start()
+        self.addCleanup(p.stop)
+        self.snap = c.snapshot_config()
+        self.addCleanup(c.restore_config, self.snap)
+        c.CONTAINER = "web-caddy"
+        self.db = c.stats_db()
+        self.addCleanup(self.db.close)
+
+    EVENTS = None
+
+    def events(self):
+        t = self.T0
+        return [sev(t + 10), sev(t + 20, status=404, size=50), sev(t + 30, status=500, dur=2.0),
+                sev(t + 3700, host="b.example.com", ip="45.83.64.8"), sev(t + 3710, host="b.example.com", ip="45.83.64.8", status=301)]
+
+    def test_agrega_por_hora_y_sitio(self):
+        hourly, ips, last, n = c.aggregate_events(self.events())
+        self.assertEqual(n, 5)
+        self.assertEqual(last, self.T0 + 3710)
+        a = hourly[(self.T0, "a.example.com")]
+        self.assertEqual(a[:6], [3, 250, 1, 0, 1, 1])               # requests, bytes, 2xx, 3xx, 4xx, 5xx
+        self.assertAlmostEqual(a[6], 2.02)
+        self.assertEqual(a[7], 2.0)
+        self.assertEqual(hourly[(self.T0 + self.H, "b.example.com")][:6], [2, 200, 1, 1, 0, 0])
+        day = self.T0 // 86400 * 86400
+        self.assertEqual(ips[(day, "45.83.64.7")], [3, 2])           # 3 requests, 2 of them errors
+
+    def test_ignora_lo_ya_contado(self):
+        __, __, last, n = c.aggregate_events(self.events(), since_ts=self.T0 + 20)
+        self.assertEqual((n, last), (3, self.T0 + 3710))
+
+    def test_recolectar_dos_veces_no_duplica_y_suma_lo_nuevo(self):
+        now = self.T0 + 7200
+        self.assertEqual(c.collect_stats(self.db, events=self.events(), now=now), 5)
+        self.assertEqual(c.collect_stats(self.db, events=self.events(), now=now), 0)           # same log again: cursor
+        extra = self.events() + [sev(self.T0 + 3800, host="b.example.com", ip="45.83.64.8", status=502)]
+        self.assertEqual(c.collect_stats(self.db, events=extra, now=now), 1)
+        rep = c.stats_report(self.db, "web-caddy", self.T0, self.T0 + 2 * self.H)
+        self.assertEqual((rep["requests"], rep["s2"], rep["s3"], rep["s4"], rep["s5"]), (6, 2, 1, 1, 2))
+
+    def test_cada_contenedor_tiene_lo_suyo(self):
+        c.collect_stats(self.db, events=self.events(), now=self.T0 + 7200)
+        c.CONTAINER = "api-caddy"
+        self.assertEqual(c.collect_stats(self.db, events=[sev(self.T0 + 5)], now=self.T0 + 7200), 1)
+        self.assertEqual(c.stats_report(self.db, "api-caddy", self.T0, self.T0 + self.H)["requests"], 1)
+        self.assertEqual(c.stats_report(self.db, "web-caddy", self.T0, self.T0 + self.H)["requests"], 3)
+
+    def test_informe(self):
+        c.collect_stats(self.db, events=self.events(), now=self.T0 + 7200)
+        rep = c.stats_report(self.db, "web-caddy", self.T0, self.T0 + 2 * self.H)
+        self.assertEqual((rep["requests"], rep["bytes"]), (5, 450))
+        self.assertEqual([r[0] for r in rep["by_site"]], ["a.example.com", "b.example.com"])
+        self.assertEqual(rep["dur_max"], 2.0)
+        self.assertEqual(rep["top_ips"][0], ("45.83.64.7", 3, 2))
+        self.assertEqual((rep["first"], rep["last"]), (self.T0, self.T0 + self.H))
+        only_first = c.stats_report(self.db, "web-caddy", self.T0, self.T0 + self.H)
+        self.assertEqual(only_first["requests"], 3)
+
+    def test_eventos_muy_antiguos_no_entran(self):
+        old = [sev(self.T0 - 200 * 86400)]
+        self.assertEqual(c.collect_stats(self.db, events=old, now=self.T0), 0)
+
+    def test_poda(self):
+        c.collect_stats(self.db, events=self.events(), now=self.T0 + 7200)
+        c.prune_stats(self.db, now=self.T0 + 91 * 86400)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM hourly").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM daily_ips").fetchone()[0], 0)
+        c.collect_stats(self.db, events=[sev(self.T0 + 91 * 86400)], now=self.T0 + 91 * 86400)
+        c.prune_stats(self.db, now=self.T0 + 92 * 86400)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM hourly").fetchone()[0], 1)
+
+    def test_base_de_datos_privada(self):
+        self.assertEqual(stat.S_IMODE(os.stat(c.stats_path()).st_mode), 0o600)
+
+    def test_texto_del_informe(self):
+        c.collect_stats(self.db, events=self.events(), now=self.T0 + 7200)
+        rep = c.stats_report(self.db, "web-caddy", self.T0, self.T0 + 2 * self.H)
+        text = c.render_stats(rep, "TITLE", hourly_rows=True)
+        for frag in ("TITLE", "Requests: 5", "5xx 1 (20.0%)", "Busiest hour", "Requests per hour", "a.example.com", "b.example.com",
+                     "45.83.64.7", "Data available"):
+            self.assertIn(frag, text)
+        by_day = c.render_stats(rep, "T", hourly_rows=False)
+        self.assertIn("Requests per day", by_day)
+        self.assertEqual(c.render_stats(c.stats_report(self.db, "web-caddy", 0, 1), "T", True), "No data for this period yet.")
+
+    def test_period_report_y_cli(self):
+        with mock.patch.object(c, "iter_access_events", return_value=iter(self.events())):
+            rep, text = c.period_report("7d", now=self.T0 + 7200)
+        self.assertEqual(rep["requests"], 5)
+        self.assertIn("last 7d · web-caddy", text)
+        out = io.StringIO()
+        args = argparse.Namespace(stats="7d", json=True)
+        with mock.patch.object(c, "iter_access_events", return_value=iter([])), mock.patch.object(c.time, "time", return_value=self.T0 + 7200), \
+             contextlib.redirect_stdout(out):
+            self.assertEqual(c.run_stats(args), 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual((data["requests"], data["container"], data["period"]), (5, "web-caddy", "7d"))
+        self.assertEqual(data["sites"][0]["host"], "a.example.com")
+
+    def test_recolectar_desde_la_linea_de_comandos(self):
+        out = io.StringIO()
+        with mock.patch.object(c, "iter_access_events", return_value=iter(self.events())), mock.patch.object(c.time, "time", return_value=self.T0 + 7200), \
+             contextlib.redirect_stdout(out):
+            c.run_collect_stats(argparse.Namespace(quiet=False))
+        self.assertIn("5 new request(s) counted for web-caddy", out.getvalue())
+
+    def test_unidades_con_estadisticas(self):
+        self.assertIn("ExecStartPre=-/x --collect-stats --quiet", c.render_service("/x", False, False, True))
+        self.assertIn("--collect-stats --quiet --all", c.render_service("/x", False, True, True))
+        self.assertNotIn("--collect-stats", c.render_service("/x"))
+        self.assertIn("/x --collect-stats --quiet >/dev/null 2>&1; /x --check", c.render_cron("/x", 60, False, False, True))
+
+    def test_pantalla_de_estadisticas(self):
+        app = c.App.__new__(c.App)
+        shown = []
+        app.show = lambda title, text: shown.append((title, text))
+        app.busy = lambda m: None
+        app.pick = lambda title, items: 1                                  # "Last 7 days"
+        with mock.patch.object(c, "container_state", return_value=("running", "")), \
+             mock.patch.object(c, "iter_access_events", return_value=iter(self.events())), mock.patch.object(c.time, "time", return_value=self.T0 + 7200):
+            app.act_stats()
+        self.assertIn("Requests: 5", shown[-1][1])
 
 
 class Translations(unittest.TestCase):

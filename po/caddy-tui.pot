@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 20:39+0200\n"
+"POT-Creation-Date: 2026-10-18 20:41+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -60,6 +60,9 @@ msgid "HTTPS certificates"
 msgstr ""
 
 msgid "Probe services"
+msgstr ""
+
+msgid "Traffic statistics"
 msgstr ""
 
 msgid "Update Caddy image"
@@ -572,6 +575,11 @@ msgid ""
 msgstr ""
 
 msgid ""
+"Also keep traffic statistics (hourly totals per site and busiest addresses, "
+"kept 90 days)?"
+msgstr ""
+
+msgid ""
 "Also ban scanners automatically, like fail2ban? (only public addresses; bans "
 "expire)"
 msgstr ""
@@ -913,6 +921,50 @@ msgstr ""
 msgid ""
 "The export also had alerts / bans settings. Run: sudo caddy-tui --setup-"
 "alerts to set the periodic check up again."
+msgstr ""
+
+msgid "No data for this period yet."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Requests: {n} · Traffic sent: {size} · Avg latency: {avg:.0f} ms (max "
+"{mx:.0f} ms)"
+msgstr ""
+
+#, python-brace-format
+msgid "Status: 2xx {a} ({ap}) · 3xx {b} · 4xx {c} ({cp}) · 5xx {d} ({dp})"
+msgstr ""
+
+#, python-brace-format
+msgid "Busiest hour: {when} · {n} requests"
+msgstr ""
+
+msgid "Requests per hour"
+msgstr ""
+
+msgid "Requests per day"
+msgstr ""
+
+msgid "Sites"
+msgstr ""
+
+msgid "Busiest client addresses (counted by UTC day)"
+msgstr ""
+
+msgid "  {ip:<40} {n:>8,} requests · {e:,} errors"
+msgstr ""
+
+#, python-brace-format
+msgid "Data available: {a} → {b}"
+msgstr ""
+
+#, python-brace-format
+msgid "Traffic statistics · last {period} · {name}"
+msgstr ""
+
+#, python-brace-format
+msgid "Statistics updated: {n} new request(s) counted for {name}."
 msgstr ""
 
 msgid "Welcome. Press a key from the menu."
@@ -1661,6 +1713,21 @@ msgstr ""
 msgid "Caddyfile: {path}"
 msgstr ""
 
+msgid "Last 24 hours (per hour)"
+msgstr ""
+
+msgid "Last 7 days"
+msgstr ""
+
+msgid "Last 30 days"
+msgstr ""
+
+msgid "Last 90 days"
+msgstr ""
+
+msgid "Reading the access log and updating the statistics..."
+msgstr ""
+
 msgid "Language"
 msgstr ""
 
@@ -1766,6 +1833,16 @@ msgid "restore an export made with --export into a new Caddy in Docker"
 msgstr ""
 
 msgid "with --import: do not ask for confirmation"
+msgstr ""
+
+msgid ""
+"print the traffic statistics of a period (24h, 7d, 30d, 90d; default 7d); --"
+"json for machines"
+msgstr ""
+
+msgid ""
+"fold the access log since the last run into the statistics database, then "
+"exit (for the periodic timer)"
 msgstr ""
 
 msgid ""
