@@ -2046,6 +2046,62 @@ class ImportFlow(unittest.TestCase):
         self.assertIn("Not a caddy-tui export", self.out.getvalue())
 
 
+class DockerAvailability(unittest.TestCase):
+    def status(self, rc, out):
+        with mock.patch.object(c, "run", return_value=(rc, out)):
+            return c.docker_status()[0]
+
+    def test_clasifica_los_errores_reales_de_docker(self):
+        self.assertEqual(self.status(0, "29.1.3"), "ok")
+        self.assertEqual(self.status(1, "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"), "denied")
+        self.assertEqual(self.status(1, "permission denied while trying to connect to the Docker daemon socket"), "denied")
+        self.assertEqual(self.status(1, "failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running"), "stopped")
+        self.assertEqual(self.status(1, "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"), "stopped")
+
+    def ensure(self, statuses, interactive=True, root=True, systemd=True, answer=True, start_rc=0):
+        said, calls, seq = io.StringIO(), [], iter(statuses)
+        with mock.patch.object(c, "docker_status", side_effect=lambda: (next(seq), "")), \
+             mock.patch.object(os, "geteuid", return_value=0 if root else 1000), \
+             mock.patch.object(c, "_systemd_available", return_value=systemd), \
+             mock.patch.object(c, "ask_yes", return_value=answer), \
+             mock.patch.object(c, "run", side_effect=lambda cmd, **k: (calls.append(cmd), (start_rc, "boom"))[1]), \
+             contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+            return c.ensure_docker_running(interactive), calls, said.getvalue()
+
+    def test_todo_bien(self):
+        self.assertEqual(self.ensure(["ok"]), (True, [], ""))
+
+    def test_sin_permiso_recomienda_sudo(self):
+        ok, calls, out = self.ensure(["denied"])
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
+        self.assertIn("sudo", out)
+
+    def test_parado_y_root_ofrece_arrancarlo(self):
+        ok, calls, out = self.ensure(["stopped", "ok"])
+        self.assertTrue(ok)
+        self.assertEqual(calls, [["systemctl", "enable", "--now", "docker"]])
+        self.assertIn("Docker is running", out)
+
+    def test_parado_y_el_usuario_dice_que_no(self):
+        ok, calls, out = self.ensure(["stopped"], answer=False)
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
+        self.assertIn("sudo systemctl start docker", out)
+
+    def test_parado_sin_root_o_sin_systemd_o_sin_interactivo_solo_explica(self):
+        for kw in (dict(root=False), dict(systemd=False), dict(interactive=False)):
+            ok, calls, out = self.ensure(["stopped"], **kw)
+            self.assertFalse(ok)
+            self.assertEqual(calls, [])
+            self.assertIn("sudo systemctl start docker", out)
+
+    def test_no_consigue_arrancarlo(self):
+        ok, calls, out = self.ensure(["stopped", "stopped"], start_rc=1)
+        self.assertFalse(ok)
+        self.assertIn("Could not start Docker", out)
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

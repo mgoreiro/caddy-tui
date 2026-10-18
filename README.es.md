@@ -35,6 +35,8 @@ El instalador guiado:
 4. Escribe un `Caddyfile` y un `docker-compose.yml` (imagen `caddy:2-alpine`, volúmenes para los certificados, `host.docker.internal` disponible), **valida la configuración antes de tocar el destino**, arranca Caddy y comprueba que se mantiene en marcha.
 5. Abre la interfaz ya conectada a él; después ejecuta `sudo caddy-tui --setup-alerts` si quieres alertas por Telegram.
 
+Si Docker está instalado pero no se puede usar, lo dice en vez de ofrecer un Caddy nuevo: *sin permiso* → ejecútalo con `sudo` (o entra en el grupo `docker`); *servicio parado* → ofrece arrancarlo (como root con systemd) o muestra `sudo systemctl start docker`.
+
 Nunca sobrescribe un `Caddyfile` / `docker-compose.yml` existente y solo funciona de forma interactiva (`--check` y `--notify` siguen saliendo con código 3 si no hay Caddy).
 
 ## Llevar la configuración a otro servidor (`--export` / `--import`)
