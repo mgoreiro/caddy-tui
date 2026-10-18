@@ -21,6 +21,10 @@ keyid=$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10
 [ -n "$keyid" ] || { echo "no secret key imported" >&2; exit 1; }
 
 suite=stable component=main
+# Packages are Architecture: all (one binary-all index). Listing the common architectures too makes apt treat them
+# as supported (and silently ignore their missing indexes) instead of printing "doesn't support architecture" notices
+# on multiarch hosts. "all" must stay in the list: it is what makes apt fetch binary-all.
+archs="all amd64 arm64 armhf armel i386 riscv64 ppc64el s390x"
 pool="pool/$component/c/caddy-tui"
 mkdir -p "$apt_dir/$pool"
 for deb in "$@"; do
@@ -40,7 +44,7 @@ apt-ftparchive \
   -o "APT::FTPArchive::Release::Label=caddy-tui" \
   -o "APT::FTPArchive::Release::Suite=$suite" \
   -o "APT::FTPArchive::Release::Codename=$suite" \
-  -o "APT::FTPArchive::Release::Architectures=all" \
+  -o "APT::FTPArchive::Release::Architectures=$archs" \
   -o "APT::FTPArchive::Release::Components=$component" \
   -o "APT::FTPArchive::Release::Description=caddy-tui: terminal UI for Caddy in Docker" \
   release "$dist" > "$dist/Release"
