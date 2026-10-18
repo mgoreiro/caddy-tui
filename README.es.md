@@ -10,7 +10,19 @@ Sin dependencias: solo **Python 3.8+** (librería estándar, `curses`) y **Docke
 
 ## Instalación
 
-Descarga el paquete `.deb` de la [última release](https://github.com/mgoreiro/caddy-tui/releases/latest) e instálalo (Debian, Ubuntu, Raspberry Pi OS, Armbian…; sirve para cualquier arquitectura):
+### Con apt (recomendado: `apt upgrade` lo mantiene al día)
+
+Debian, Ubuntu, Raspberry Pi OS, Armbian… —el paquete sirve para cualquier arquitectura—. El repositorio está firmado; huella de la clave: `BA7E 2381 6880 1639 21BC  70DE 15C2 632D D390 10EE`.
+
+```bash
+curl -fsSL https://mgoreiro.github.io/caddy-tui/apt/caddy-tui.gpg | sudo tee /usr/share/keyrings/caddy-tui.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/caddy-tui.gpg] https://mgoreiro.github.io/caddy-tui/apt stable main" | sudo tee /etc/apt/sources.list.d/caddy-tui.list
+sudo apt update && sudo apt install caddy-tui
+```
+
+### Desde el fichero de la release
+
+Descarga el `.deb` de la [última release](https://github.com/mgoreiro/caddy-tui/releases/latest) e instálalo (junto a él hay un `SHA256SUMS`):
 
 ```bash
 sudo apt install ./caddy-tui_*_all.deb
