@@ -56,7 +56,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -2292,6 +2292,35 @@ def ensure_docker():
     return True
 
 
+def docker_status():
+    """-> ('ok' | 'denied' | 'stopped', raw output): can this user talk to the Docker daemon?"""
+    rc, out = run(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=30)
+    if rc == 0:
+        return "ok", out
+    return ("denied" if "permission denied" in out.lower() else "stopped"), out
+
+
+def ensure_docker_running(interactive=True, stream=None):
+    """The docker CLI exists; make sure the daemon answers, offering to start it when it is stopped. -> bool"""
+    stream = stream or sys.stdout
+    status, __ = docker_status()
+    if status == "ok":
+        return True
+    if status == "denied":
+        print(_("You are not allowed to use Docker. Run caddy-tui with sudo, or add your user to the docker group."), file=stream)
+        return False
+    print(_("Docker is installed but its service is not running."), file=stream)
+    if interactive and os.geteuid() == 0 and _systemd_available() and ask_yes(_("Start Docker now?"), True):
+        rc, out = run(["systemctl", "enable", "--now", "docker"], timeout=120)
+        if rc == 0 and docker_status()[0] == "ok":
+            print("✔ " + _("Docker is running."))
+            return True
+        print(_("Could not start Docker: {error}").format(error=out.splitlines()[-1] if out else ""), file=stream)
+        return False
+    print(_("Start it with: sudo systemctl start docker"), file=stream)
+    return False
+
+
 def validate_standalone(directory, image="caddy:2-alpine", env=None):
     envs = [x for k, v in (env or {}).items() for x in ("-e", f"{k}={v}")]
     rc, out = run(["docker", "run", "--rm", *envs, "-v", f"{directory}:/etc/caddy:ro", "-w", "/etc/caddy", image,
@@ -3779,6 +3808,8 @@ def main():
                 print(msg, file=sys.stderr)
                 sys.exit(3)
             sys.exit(msg)
+    if not ensure_docker_running(interactive and not args.setup_alerts, None if interactive else sys.stderr):
+        sys.exit(3 if (args.check or args.auto_block) else 1)
     if args.export is not None:
         try:
             configure(args)

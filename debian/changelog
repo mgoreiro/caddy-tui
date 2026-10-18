@@ -1,3 +1,14 @@
+caddy-tui (1.7.1) unstable; urgency=medium
+
+  * Docker installed but unusable is now told apart from "no Caddy found":
+    without permission it says to use sudo (or the docker group); with the
+    service stopped it offers to start it (as root with systemd) or shows the
+    command. In --check / --auto-block it exits with 3 and the same message.
+    Before, both cases looked like "No Caddy container found" and offered to
+    install a new Caddy.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 22:30:00 +0200
+
 caddy-tui (1.7.0) unstable; urgency=medium
 
   * New: --export / [o] writes the configuration (Caddyfile, compose, .env and,

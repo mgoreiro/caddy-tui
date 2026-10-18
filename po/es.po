@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 18:52+0200\n"
+"POT-Creation-Date: 2026-10-18 19:18+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -772,6 +772,29 @@ msgstr ""
 
 msgid "Docker installed."
 msgstr "Docker instalado."
+
+msgid ""
+"You are not allowed to use Docker. Run caddy-tui with sudo, or add your user "
+"to the docker group."
+msgstr ""
+"No tienes permiso para usar Docker. Ejecuta caddy-tui con sudo o añade tu "
+"usuario al grupo docker."
+
+msgid "Docker is installed but its service is not running."
+msgstr "Docker está instalado pero su servicio no está en marcha."
+
+msgid "Start Docker now?"
+msgstr "¿Arrancar Docker ahora?"
+
+msgid "Docker is running."
+msgstr "Docker está en marcha."
+
+#, python-brace-format
+msgid "Could not start Docker: {error}"
+msgstr "No se pudo arrancar Docker: {error}"
+
+msgid "Start it with: sudo systemctl start docker"
+msgstr "Arráncalo con: sudo systemctl start docker"
 
 msgid "== caddy-tui: set up Caddy in Docker =="
 msgstr "== caddy-tui: instalar Caddy en Docker =="
