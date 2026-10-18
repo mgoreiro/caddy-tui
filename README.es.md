@@ -62,7 +62,8 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 | `s` / `x` / `r` | Arrancar o aplicar / parar / reiniciar |
 | `g` | Ver logs |
 | `f` | Formatear el Caddyfile |
-| `k` / `b` | Crear / restaurar un backup (`Caddyfile` + `.env` en `.caddy-backups/`) |
+| `u` | **Deshacer el último cambio**: muestra el diff con la última versión anterior y la restaura (haciendo antes copia de la actual, así que pulsar `u` otra vez lo rehace) |
+| `k` / `b` | Crear / restaurar un backup (`Caddyfile` + `.env` en `.caddy-backups/`); la lista indica la antigüedad de cada uno y cuántas líneas cambiarían, y ves el diff antes de confirmar |
 | `n` | Editar `.env` |
 | `L` | Cambiar de idioma (English / Español) |
 

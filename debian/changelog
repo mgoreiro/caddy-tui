@@ -1,3 +1,16 @@
+caddy-tui (1.6.0) unstable; urgency=medium
+
+  * New [u]: undo the last change. Shows the diff against the latest earlier
+    version of the Caddyfile and restores it after confirmation; the current
+    version is backed up first, so [u] again redoes it.
+  * Restore [b]: the list shows the age of each backup and how many lines
+    would change, and the diff is shown before confirming. Restoring now
+    offers to reload Caddy, and docker-compose backups no longer appear in
+    the list.
+  * The menu uses three columns on wide terminals.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
+
 caddy-tui (1.5.0) unstable; urgency=medium
 
   * New [m] screen: manage services. Lists the sites of the Caddyfile and

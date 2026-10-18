@@ -30,6 +30,7 @@ Headless mode for cron / systemd / monitoring (read-only):
 """
 import argparse
 import curses
+import difflib
 import getpass
 import gettext
 import hashlib
@@ -51,7 +52,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -178,6 +179,7 @@ MENU = [
     ("f", N_("Format Caddyfile")),
     ("c", N_("View Caddyfile")),
     ("k", N_("Create backup (Caddyfile+.env)")),
+    ("u", N_("Undo last change")),
     ("b", N_("Restore backup")),
     ("n", N_("Edit .env")),
     ("q", N_("Quit")),
@@ -405,6 +407,57 @@ def write_in_place(text):
         f.seek(0)
         f.truncate()
         f.write(text)
+
+
+# ------------------------------------------------------------ history / undo ---
+def read_backups():
+    """Caddyfile versions kept in .caddy-backups, newest first: [{name, path, kind, mtime}]."""
+    out = []
+    if not os.path.isdir(BACKUPS):
+        return out
+    for name in sorted(os.listdir(BACKUPS), reverse=True):
+        if name.startswith("Caddyfile."):
+            kind = "caddyfile"
+        elif name.startswith("full-") and name.endswith(".tar.gz"):
+            kind = "full"
+        else:
+            continue                                    # e.g. docker-compose backups
+        path = os.path.join(BACKUPS, name)
+        out.append({"name": name, "path": path, "kind": kind, "mtime": os.path.getmtime(path)})
+    return out
+
+
+def backup_text(entry):
+    """-> (Caddyfile text, .env text or None) of a backup entry."""
+    if entry["kind"] == "full":
+        with tarfile.open(entry["path"], "r:gz") as tar:
+            text = tar.extractfile("Caddyfile").read().decode("utf-8")
+            env = tar.extractfile(".env").read().decode("utf-8") if ".env" in tar.getnames() else None
+        return text, env
+    with open(entry["path"], encoding="utf-8") as f:
+        return f.read(), None
+
+
+def unified_diff(old, new, old_name, new_name):
+    return list(difflib.unified_diff(old.splitlines(), new.splitlines(), old_name, new_name, lineterm="", n=2))
+
+
+def diff_stats(old, new):
+    """(added, removed) lines going from `old` to `new`."""
+    lines = unified_diff(old, new, "a", "b")
+    return (sum(1 for l in lines if l.startswith("+") and not l.startswith("+++")),
+            sum(1 for l in lines if l.startswith("-") and not l.startswith("---")))
+
+
+def ago(ts, now=None):
+    secs = max(0, (now if now is not None else time.time()) - ts)
+    if secs < 60:
+        return _("just now")
+    if secs < 3600:
+        return _("{n} min ago").format(n=int(secs // 60))
+    if secs < 86400:
+        return _("{n} h ago").format(n=int(secs // 3600))
+    return _("{n} d ago").format(n=int(secs // 86400))
 
 
 # -------------------------------------------------- services (wizard) ----
@@ -1371,6 +1424,7 @@ class App:
         self.scr = scr
         self.out = [_("Welcome. Press a key from the menu.")]
         self.title = _("Output")
+        self.diff = False
         self.scroll = 0
         self.state = ("?", "")
         self.last_refresh = 0
@@ -1387,6 +1441,11 @@ class App:
         self.title = title
         self.out = text.splitlines() or [_("(no output)")]
         self.scroll = 0
+        self.diff = False
+
+    def show_diff(self, title, lines):
+        self.show(title, "\n".join(lines))
+        self.diff = True
 
     def refresh_state(self, force=False):
         if force or time.time() - self.last_refresh > 3:
@@ -1415,7 +1474,8 @@ class App:
         # menu in two columns
         top = 4
         colw = max(30, min(w // 2, 34))
-        rows = (len(MENU) + 1) // 2
+        cols = 3 if w >= 3 * colw + 2 else 2
+        rows = -(-len(MENU) // cols)
         for i, (k, label) in enumerate(MENU):
             y, x = top + i % rows, 1 + (i // rows) * colw
             if y < h - 3 and x + colw <= w + 2:
@@ -1430,7 +1490,16 @@ class App:
         self.scroll = max(0, min(self.scroll, max_scroll))
         for i, line in enumerate(self.out[self.scroll : self.scroll + avail]):
             attr = 0
-            if line.startswith("✘") or " ERROR " in line:
+            if getattr(self, "diff", False):
+                if line.startswith(("+++", "---")):
+                    attr = curses.A_BOLD
+                elif line.startswith("+"):
+                    attr = curses.color_pair(1)
+                elif line.startswith("-"):
+                    attr = curses.color_pair(2)
+                elif line.startswith("@@"):
+                    attr = curses.color_pair(4)
+            elif line.startswith("✘") or " ERROR " in line:
                 attr = curses.color_pair(2)
             elif line.startswith("⚠") or " WARN " in line:
                 attr = curses.color_pair(3)
@@ -1604,44 +1673,68 @@ class App:
         os.chmod(dest, 0o600)  # .env holds secrets
         self.show(_("Backup"), "✔ " + _("Backup created: {path}\nContains: {files}").format(path=os.path.relpath(dest, BASE), files=", ".join(names)))
 
-    def act_restore(self):
-        files = sorted(os.listdir(BACKUPS), reverse=True) if os.path.isdir(BACKUPS) else []
-        if not files:
-            self.show(_("Restore"), _("No backups yet. Create one with [k] (copies are also made when editing)."))
-            return
-        labels = [
-            f + ("   (Caddyfile + .env)" if f.endswith(".tar.gz") else "   " + _("(Caddyfile only)"))
-            for f in files
-        ]
-        i = self.pick(_("Choose the backup to restore"), labels)
-        if i is None:
-            return
-        src = os.path.join(BACKUPS, files[i])
-        env_text = None
-        if src.endswith(".tar.gz"):
-            with tarfile.open(src, "r:gz") as tar:
-                text = tar.extractfile("Caddyfile").read().decode("utf-8")
-                if ".env" in tar.getnames():
-                    env_text = tar.extractfile(".env").read().decode("utf-8")
-        else:
-            with open(src, encoding="utf-8") as f:
-                text = f.read()
+    def _restore(self, entry, text, env_text=None):
+        """Show what restoring `text` would change, ask, back up the current state and restore."""
+        with open(CADDYFILE, encoding="utf-8") as f:
+            current = f.read()
         self.busy(_("Validating backup..."))
         ok, out = validate_text(text)
         if not ok:
             self.show(_("The backup's Caddyfile is not valid; not restoring"), out)
             return
+        self.show_diff(_("Changes if you restore {name}").format(name=entry["name"]),
+                       unified_diff(current, text, _("current"), entry["name"]) or [_("(identical to the current Caddyfile)")])
+        self.draw()
         what = _("Caddyfile and .env") if env_text is not None else "Caddyfile"
         if not self.ask(_("Restore {what}? The current state will be backed up first.").format(what=what)):
             return
-        self.act_backup()
+        if env_text is not None:
+            self.act_backup()
+        else:
+            backup_caddyfile()
         write_in_place(text)
         if env_text is not None:
             with open(ENVFILE, "w", encoding="utf-8") as f:
                 f.write(env_text)
-        tip = (_("Use [l] to reload the Caddyfile or [s] to apply .env changes.") if env_text is not None
-               else _("Use [l] to reload the Caddyfile."))
-        self.show(_("Restore"), "✔ " + _("Restored {what} from {file}.").format(what=what, file=files[i]) + "\n" + tip)
+        msg = "✔ " + _("Restored {what} from {file}.").format(what=what, file=entry["name"])
+        if env_text is not None:
+            msg += "\n" + _("Use [s] to apply the .env changes.")
+        self.show(_("Restore"), msg)
+        self.draw()
+        state, __ = container_state()
+        if state == "running" and self.ask(_("Reload Caddy now?"), True):
+            self.act_reload()
+
+    def act_restore(self):
+        entries = read_backups()
+        if not entries:
+            self.show(_("Restore"), _("No backups yet. Create one with [k] (copies are also made when editing)."))
+            return
+        with open(CADDYFILE, encoding="utf-8") as f:
+            current = f.read()
+        labels = []
+        for e in entries:
+            text, __ = backup_text(e)
+            added, removed = diff_stats(current, text)
+            change = f"+{added} -{removed}" if added or removed else _("identical to current")
+            labels.append(f"{datetime.fromtimestamp(e['mtime']):%Y-%m-%d %H:%M}  {ago(e['mtime'])}  {change}"
+                          + ("  (Caddyfile + .env)" if e["kind"] == "full" else ""))
+        i = self.pick(_("Choose the backup to restore"), labels)
+        if i is None:
+            return
+        text, env_text = backup_text(entries[i])
+        self._restore(entries[i], text, env_text)
+
+    def act_undo(self):
+        """Go back to the latest earlier version that differs from the current Caddyfile."""
+        with open(CADDYFILE, encoding="utf-8") as f:
+            current = f.read()
+        for e in read_backups():
+            text, __ = backup_text(e)
+            if text != current:
+                self._restore(e, text)           # Caddyfile only; pressing [u] again redoes it
+                return
+        self.show(_("Undo"), _("There is no earlier version different from the current Caddyfile."))
 
     # -- modal form (wizards)
     def form(self, title, fields, validator):
@@ -2068,7 +2161,7 @@ class App:
         actions = {
             "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
-            "c": self.act_view, "b": self.act_restore, "k": self.act_backup, "n": self.act_env,
+            "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),
             "r": lambda: self.act_compose(_("Restart"), "restart", SERVICE, confirm=_("Restart Caddy? There will be a brief outage.")),
         }
