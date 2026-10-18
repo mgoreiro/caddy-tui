@@ -64,6 +64,11 @@ With \fB\-\-setup\-alerts\fR: check interval (5 minutes to 24 hours, e.g. 30m, 1
 .B \-\-notify\-warnings
 With \fB\-\-setup\-alerts\fR: notify on warnings too, not only on problems.
 .TP
+.B \-\-install
+Guided setup of a new Caddy in Docker: installs Docker if needed (apt systems, root), checks ports and DNS,
+writes a Caddyfile and docker-compose.yml, validates, starts Caddy and opens the interface. Also offered
+automatically when no Caddy container is found.
+.TP
 .B \-\-version
 Show the version and exit.
 .SH EXIT STATUS

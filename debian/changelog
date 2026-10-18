@@ -20,6 +20,11 @@ caddy-tui (1.6.0) unstable; urgency=medium
     the registry (anonymous bearer token; Docker Hub, GHCR, Quay...), pulls
     the new one, validates the Caddyfile with it and only then recreates the
     container. The diagnostics warn when an update is available (cached 6 h).
+  * New: caddy-tui --install (also offered when no Caddy container is found):
+    guided setup of Caddy in Docker. Installs Docker on apt-based systems when
+    missing, checks the machine (native Caddy, ports 80/443, DNS), writes a
+    Caddyfile and docker-compose.yml, validates, starts Caddy and opens the
+    interface. Closes the "install from scratch" request.
 
  -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
 

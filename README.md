@@ -21,6 +21,24 @@ caddy-tui
 You can also run it without installing: it is a single Python file (`./caddy-tui.py`; run
 `make mo` first if you want the Spanish translation from a checkout).
 
+## No Caddy yet? Let caddy-tui set it up
+
+On a machine without Caddy (or even without Docker) just run it:
+
+```bash
+sudo caddy-tui --install        # or simply `caddy-tui`: it offers it when it finds no Caddy container
+```
+
+The guided installer:
+
+1. **Installs Docker** if it is missing (apt-based systems, as root, after asking; it picks `docker.io` plus a Docker Compose v2 package when the distribution has one — Debian 12 does not, then Caddy runs as a plain container).
+2. Checks the machine: a **non-Docker Caddy** already running, **ports 80/443 in use** (and by what; it offers 8080/8443), whether the folder is free and whether your domain resolves.
+3. Asks the **configuration folder**, your first **domain** and **where its application listens** (both optional) and an email for Let's Encrypt notices.
+4. Writes a `Caddyfile` and a `docker-compose.yml` (image `caddy:2-alpine`, volumes for certificates, `host.docker.internal` available), **validates the configuration before touching the destination**, starts Caddy and checks that it stays up.
+5. Opens the interface already attached to it; run `sudo caddy-tui --setup-alerts` afterwards if you want Telegram alerts.
+
+It never overwrites an existing `Caddyfile` / `docker-compose.yml`, and it only runs interactively (`--check` and `--notify` keep exiting with code 3 when there is no Caddy).
+
 ## Usage
 
 It autodetects the Caddy container and, from it, the image, the mounted `Caddyfile` and the

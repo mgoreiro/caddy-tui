@@ -194,17 +194,21 @@ MENU = [
 
 
 # ----------------------------------------------------------------- helpers ---
-def run(cmd, stdin=None, timeout=120):
+def run(cmd, stdin=None, timeout=120, cwd=None):
     """Run a command and return (exit code, combined output)."""
     try:
         p = subprocess.run(
-            cmd, cwd=BASE, input=stdin, capture_output=True, text=True, timeout=timeout
+            cmd, cwd=cwd or BASE, input=stdin, capture_output=True, text=True, timeout=timeout
         )
         return p.returncode, (p.stdout + p.stderr).rstrip()
     except FileNotFoundError:
         return 127, _("Command not found: {cmd}").format(cmd=cmd[0])
     except subprocess.TimeoutExpired:
         return 124, _("Timed out running: {cmd}").format(cmd=" ".join(cmd))
+
+
+class NoCaddyContainer(SystemExit):
+    """No Caddy container found (an interactive run offers to install one)."""
 
 
 def list_caddy_containers():
@@ -228,7 +232,7 @@ def configure(args):
     if not name:
         cands = list_caddy_containers()
         if not cands:
-            sys.exit(_("No Caddy container found. Specify one with --container NAME."))
+            raise NoCaddyContainer(_("No Caddy container found. Specify one with --container NAME."))
         if len(cands) == 1:
             name = cands[0][0]
         elif not sys.stdin.isatty():
@@ -1788,6 +1792,277 @@ def check_image_update(digest_fn=None):
     return info
 
 
+# ----------------------------------------------------- install from scratch ---
+INSTALL_CONTAINER = "caddy"
+
+
+def render_install_compose(http_port=80, https_port=443, container=INSTALL_CONTAINER):
+    return f"""# Created by caddy-tui --install
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: {container}
+    restart: unless-stopped
+    ports:
+      - "{http_port}:80"
+      - "{https_port}:443"
+      - "{https_port}:443/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+"""
+
+
+def render_install_caddyfile(domain="", upstream="", email=""):
+    parts = []
+    if email:
+        parts.append(f"{{\n\temail {email}\n}}\n")
+    if domain and upstream:
+        parts.append(build_site_block(dict(host=domain, upstream=upstream, https_upstream=False, skip_verify=False,
+                                           gzip=True, headers=True, log=True, user="", password="")))
+    else:
+        parts.append(':80 {\n\trespond "Caddy is running. Add your sites with caddy-tui."\n\tlog\n}\n')
+    return "\n".join(parts)
+
+
+def docker_run_command(directory, http_port=80, https_port=443, container=INSTALL_CONTAINER):
+    """Plain `docker run` equivalent of the compose file (used when docker compose v2 is not available)."""
+    return ["docker", "run", "-d", "--name", container, "--restart", "unless-stopped",
+            "-p", f"{http_port}:80", "-p", f"{https_port}:443", "-p", f"{https_port}:443/udp",
+            "--add-host", "host.docker.internal:host-gateway",
+            "-v", f"{os.path.join(directory, 'Caddyfile')}:/etc/caddy/Caddyfile:ro",
+            "-v", "caddy_data:/data", "-v", "caddy_config:/config", "caddy:2-alpine"]
+
+
+def port_in_use(port):
+    """True only if something is listening there (a permission error does not count as 'in use')."""
+    import errno
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("0.0.0.0", port))
+        return False
+    except OSError as e:
+        return e.errno == errno.EADDRINUSE
+    finally:
+        sock.close()
+
+
+def port_owner(port):
+    """Best-effort name of the process listening on `port` (needs ss and, to see others' processes, root)."""
+    rc, out = run(["ss", "-ltnpH", f"sport = :{port}"], timeout=10)
+    m = re.search(r'users:\(\("([^"]+)"', out) if rc == 0 else None
+    return m.group(1) if m else ""
+
+
+def native_caddy_running():
+    rc, out = run(["systemctl", "is-active", "caddy"], timeout=10)
+    if rc == 0 and out.strip() == "active":
+        return True
+    rc, __ = run(["pgrep", "-x", "caddy"], timeout=10)
+    return rc == 0
+
+
+def distro_ids():
+    ids = []
+    try:
+        with open("/etc/os-release", encoding="utf-8") as f:
+            info = dict(l.rstrip("\n").split("=", 1) for l in f if "=" in l)
+        ids = [info.get("ID", "").strip('"')] + info.get("ID_LIKE", "").strip('"').split()
+    except OSError:
+        pass
+    return [i for i in ids if i]
+
+
+def apt_candidate(package):
+    rc, out = run(["apt-cache", "policy", package], timeout=30)
+    m = re.search(r"Candidate: (\S+)", out) if rc == 0 else None
+    return m.group(1) if m and m.group(1) != "(none)" else ""
+
+
+def docker_install_plan(ids=None, candidate=None, have_apt=None):
+    """-> list of packages to install with apt (docker.io + a docker compose v2 package if the distro has one),
+    or None if this is not an apt-based distribution."""
+    ids = distro_ids() if ids is None else ids
+    have_apt = bool(shutil.which("apt-get")) if have_apt is None else have_apt
+    if not have_apt or not any(i in ("debian", "ubuntu", "raspbian", "linuxmint", "armbian", "pop") for i in ids):
+        return None
+    candidate = candidate or apt_candidate
+    packages = ["docker.io"]
+    for pkg in ("docker-compose-v2", "docker-compose-plugin", "docker-compose"):
+        version = candidate(pkg)
+        major = re.match(r"(?:\d+:)?(\d+)", version or "")
+        if major and (pkg != "docker-compose" or int(major.group(1)) >= 2):   # the old v1 'docker-compose' does not count
+            packages.append(pkg)
+            break
+    return packages
+
+
+def compose_available():
+    rc, __ = run(["docker", "compose", "version"], timeout=20)
+    return rc == 0
+
+
+def ensure_docker():
+    """Make sure the docker CLI exists, offering to install it (apt-based systems, as root). -> bool"""
+    if shutil.which("docker"):
+        return True
+    print(_("Docker is not installed."))
+    plan = docker_install_plan()
+    if plan is None:
+        print(_("Install it following https://docs.docker.com/engine/install/ and run caddy-tui again."))
+        return False
+    if os.geteuid() != 0:
+        print(_("Installing Docker needs root. Run: sudo caddy-tui --install"))
+        return False
+    if not ask_yes(_("Install Docker now? (apt packages: {packages})").format(packages=" ".join(plan)), True):
+        return False
+    os.environ["DEBIAN_FRONTEND"] = "noninteractive"
+    print(_("Installing Docker (this can take a few minutes)..."))
+    for cmd in (["apt-get", "update"], ["apt-get", "install", "-y"] + plan):
+        rc, out = run(cmd, timeout=1800)
+        if rc != 0:
+            print(_("The installation failed:") + "\n" + "\n".join(out.splitlines()[-8:]))
+            return False
+    if _systemd_available():
+        run(["systemctl", "enable", "--now", "docker"], timeout=120)
+    rc, out = run(["docker", "info"], timeout=60)
+    if rc != 0:
+        print(_("Docker was installed but is not responding: {error}").format(error=out.splitlines()[-1] if out else ""))
+        return False
+    user = os.environ.get("SUDO_USER")
+    if user and user != "root" and ask_yes(_("Let user {user} run docker without sudo (adds them to the docker group)?").format(user=user), False):
+        run(["usermod", "-aG", "docker", user], timeout=30)
+        print(_("Done. {user} must log out and back in for it to take effect.").format(user=user))
+    if not compose_available():
+        print(_("Note: docker compose v2 is not available in this distribution. Caddy will run as a plain container: "
+                "some automatic fixes will show you the change to make instead of applying it."))
+    print("✔ " + _("Docker installed."))
+    return True
+
+
+def validate_standalone(directory, image="caddy:2-alpine"):
+    rc, out = run(["docker", "run", "--rm", "-v", f"{directory}:/etc/caddy:ro", "-w", "/etc/caddy", image,
+                   "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"], timeout=180)
+    return rc == 0, pretty_logs(out)
+
+
+def install_flow(args):
+    """Guided first-time setup of Caddy in Docker. -> name of the new container, or None if cancelled."""
+    global BASE
+    print(_("== caddy-tui: set up Caddy in Docker =="))
+    if native_caddy_running():
+        print("⚠ " + _("A Caddy that is not in Docker is running on this machine; it probably owns ports 80/443."))
+        if not ask_yes(_("Continue anyway?"), False):
+            return None
+    existing = list_caddy_containers()
+    if existing and not ask_yes(_("A Caddy container already exists ({name}). Create another one?").format(name=existing[0][0]), False):
+        return None
+    default_dir = "/opt/caddy" if os.geteuid() == 0 else os.path.join(os.path.expanduser("~"), "caddy")
+    directory = os.path.abspath(args.dir or ask_line(_("Folder for the configuration"), default_dir))
+    if any(os.path.exists(os.path.join(directory, f)) for f in ("Caddyfile", "docker-compose.yml")):
+        print(_("{path} already contains a Caddyfile or docker-compose.yml. Choose another folder.").format(path=directory))
+        return None
+
+    domain = ask_line(_("Domain of your first site (empty = decide later)")).strip().lower()
+    upstream = email = ""
+    if domain:
+        if not HOST_RE.match(domain) or domain.startswith(("http://", "https://")):
+            print(_("Invalid domain"))
+            return None
+        upstream = ask_line(_("Where does that site's application listen? (host:port, e.g. 192.168.1.50:8080)")).strip()
+        if not upstream or any(ch.isspace() for ch in upstream):
+            print(_("Enter the upstream, e.g. 192.168.1.50:8080"))
+            return None
+        if not is_internal_name(domain):
+            ips = resolve_host(domain)
+            print(_("DNS: {domain} → {ips}").format(domain=domain, ips=", ".join(ips[:3])) if ips
+                  else "⚠ " + _("DNS: {domain} does not resolve from this machine").format(domain=domain))
+            email = ask_line(_("Email for Let's Encrypt notices (optional)")).strip()
+            if email and "@" not in email:
+                email = ""
+
+    http_port, https_port = 80, 443
+    busy = [(p, port_owner(p)) for p in (80, 443) if port_in_use(p)]
+    if busy:
+        print("⚠ " + _("Ports in use: {ports}").format(ports=", ".join(f"{p}" + (f" ({o})" if o else "") for p, o in busy)))
+        print(_("Let's Encrypt needs 80 and 443. You can use other ports for now (e.g. behind a router that forwards 80/443 to them)."))
+        if not ask_yes(_("Use alternative ports (8080 / 8443)?"), True):
+            return None
+        http_port, https_port = 8080, 8443
+        taken = [p for p in (http_port, https_port) if port_in_use(p)]
+        if taken:
+            print(_("Ports in use: {ports}").format(ports=", ".join(map(str, taken))))
+            return None
+
+    use_compose = compose_available()
+    files = ["Caddyfile"] + (["docker-compose.yml"] if use_compose else [])
+    print()
+    print(_("Folder: {path}").format(path=directory))
+    print(_("Files: {files}").format(files=", ".join(files)))
+    print(_("Site: {site}").format(site=f"{domain} → {upstream}" if domain else _("none yet (a placeholder on port 80)")))
+    print(_("Ports: {http} → 80, {https} → 443").format(http=http_port, https=https_port))
+    if not ask_yes(_("Create it and start Caddy?"), True):
+        return None
+
+    caddyfile = render_install_caddyfile(domain, upstream, email)
+    with tempfile.TemporaryDirectory() as tmp:                      # validate before touching the destination
+        with open(os.path.join(tmp, "Caddyfile"), "w", encoding="utf-8") as f:
+            f.write(caddyfile)
+        print(_("Validating the configuration (pulls the Caddy image the first time)..."))
+        ok, out = validate_standalone(tmp)
+    if not ok:
+        print("✘ " + _("The generated configuration is NOT valid") + "\n" + out)
+        return None
+    name = INSTALL_CONTAINER
+    if inspect_container(name):
+        name = "caddy-tui-caddy"
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, "Caddyfile"), "w", encoding="utf-8") as f:
+        f.write(caddyfile)
+    if use_compose:
+        with open(os.path.join(directory, "docker-compose.yml"), "w", encoding="utf-8") as f:
+            f.write(render_install_compose(http_port, https_port, name))
+        cmd = ["docker", "compose", "-f", os.path.join(directory, "docker-compose.yml"), "up", "-d"]
+    else:
+        cmd = docker_run_command(directory, http_port, https_port, name)
+    print(_("Starting Caddy..."))
+    BASE = directory
+    rc, out = run(cmd, cwd=directory, timeout=600)
+    if rc != 0:
+        print("✘ " + _("Could not start Caddy:") + "\n" + "\n".join(out.splitlines()[-10:]))
+        return None
+    for __ in range(15):
+        state, __ = container_state_of(name)
+        if state == "running":
+            break
+        time.sleep(1)
+    else:
+        rc, logs = run(["docker", "logs", "--tail", "15", name], timeout=20)
+        print("✘ " + _("Caddy did not stay running:") + "\n" + logs)
+        return None
+    print("✔ " + _("Caddy is running in container '{name}' (configuration in {path}).").format(name=name, path=directory))
+    if domain and not is_internal_name(domain):
+        print(_("It will request the certificate for {domain} on the first HTTPS request: the DNS must point to this server and ports 80/443 must reach it.").format(domain=domain))
+    print(_("Opening caddy-tui..."))
+    time.sleep(1.5)
+    return name
+
+
+def container_state_of(name):
+    rc, out = run(["docker", "inspect", "-f", "{{.State.Status}}|{{.State.StartedAt}}", name], timeout=10)
+    if rc != 0:
+        return "missing", ""
+    state, __, started = out.partition("|")
+    return state, started
+
+
 # --------------------------------------------------------------------- UI ----
 class App:
     def __init__(self, scr):
@@ -2738,6 +3013,8 @@ def parse_args():
     ap.add_argument("--remove-alerts", action="store_true", help=_("remove the periodic check set up by --setup-alerts"))
     ap.add_argument("--interval", metavar="TIME", help=_("with --setup-alerts: check interval, e.g. 30m, 1h, 6h"))
     ap.add_argument("--notify-warnings", action="store_true", help=_("with --setup-alerts: notify on warnings too"))
+    ap.add_argument("--install", action="store_true", help=_(
+        "guided setup of a new Caddy in Docker (installs Docker first if needed)"))
     ap.add_argument("--version", action="version", version=f"caddy-tui {__version__}")
     return ap.parse_args()
 
@@ -2752,12 +3029,24 @@ def main():
         sys.exit(remove_alerts(args))
     if args.setup_alerts and os.geteuid() != 0:
         sys.exit(_("Setting up alerts needs root. Run it with sudo."))
+    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not (args.check or args.setup_alerts)
+    if args.install and not interactive:
+        sys.exit(_("This program needs an interactive terminal."))
     if not shutil.which("docker"):
-        msg = _("Docker is not installed or not in PATH.")
-        if args.check:
-            print(msg, file=sys.stderr)
-            sys.exit(3)
-        sys.exit(msg)
+        if interactive:
+            if not ensure_docker():
+                sys.exit(1)
+        else:
+            msg = _("Docker is not installed or not in PATH.")
+            if args.check:
+                print(msg, file=sys.stderr)
+                sys.exit(3)
+            sys.exit(msg)
+    if args.install:
+        name = install_flow(args)
+        if not name:
+            sys.exit(0)
+        args.container, args.dir = name, None
     if args.setup_alerts:
         sys.exit(setup_alerts(args))
     if args.check:
@@ -2769,7 +3058,17 @@ def main():
         sys.exit(run_check(args))
     if not sys.stdout.isatty():
         sys.exit(_("This program needs an interactive terminal."))
-    configure(args)
+    try:
+        configure(args)
+    except NoCaddyContainer as e:
+        print(e.code)
+        if not (interactive and ask_yes(_("Set up a new Caddy now with the guided installer?"), True)):
+            sys.exit(1)
+        name = install_flow(args)
+        if not name:
+            sys.exit(1)
+        args.container, args.dir = name, None
+        configure(args)
     curses.wrapper(lambda scr: App(scr).loop())
 
 
