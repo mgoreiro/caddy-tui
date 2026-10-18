@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.6.0" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.7.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -78,6 +78,19 @@ lift expired bans, notify on Telegram if configured, then exit. Options:
 (default 24h, 0 = permanent) and
 .B \-\-dry\-run .
 .TP
+.BR \-\-export " [" \fIFILE\fR ]
+Write the Caddyfile, docker-compose.yml, .env and a checksummed manifest to a tar.gz (mode 600) to move the setup to another server.
+.B \-\-with\-certs
+adds the certificates and ACME account (private keys),
+.B \-\-with\-alerts
+the alerts settings (Telegram token).
+.TP
+.BI \-\-import " FILE"
+Restore an export into a new Caddy in Docker: verifies it, validates the Caddyfile first, restores the files and
+certificates into a new folder and starts Caddy.
+.B \-y
+skips the questions.
+.TP
 .B \-\-version
 Show the version and exit.
 .SH EXIT STATUS
@@ -136,6 +149,9 @@ View the Caddyfile.
 .TP
 .B u
 Undo the last change: show the diff against the latest earlier version and restore it (pressing it again redoes).
+.TP
+.B o
+Export the configuration to a file.
 .TP
 .B k " / " b
 Create / restore a backup (Caddyfile and .env).

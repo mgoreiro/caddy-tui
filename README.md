@@ -39,6 +39,18 @@ The guided installer:
 
 It never overwrites an existing `Caddyfile` / `docker-compose.yml`, and it only runs interactively (`--check` and `--notify` keep exiting with code 3 when there is no Caddy).
 
+## Moving to another server (`--export` / `--import`)
+
+```bash
+caddy-tui --export                      # or `o` in the interface: writes caddy-tui-export-<host>-<date>.tar.gz
+caddy-tui --export out.tar.gz --with-certs --with-alerts
+sudo caddy-tui --import out.tar.gz      # on the new machine (installs Docker if needed)
+```
+
+The export holds your `Caddyfile`, the `docker-compose.yml`, the `.env` (and, if you ask, the **certificates and ACME account** with `--with-certs` — they contain private keys — and the **alerts settings** with `--with-alerts`), plus a manifest with a SHA-256 of each file. The file is created readable only by you.
+
+`--import` verifies the checksums and refuses anything unexpected in the archive, validates the Caddyfile **before writing anything**, restores everything into a new folder (never over an existing configuration), puts the certificates back into the new container's data volume — so the **same certificates are served** and Let's Encrypt is not asked again — starts Caddy and opens the interface. Add `-y/--yes` to skip the questions. If the export had alerts settings, run `sudo caddy-tui --setup-alerts` afterwards to recreate the periodic check.
+
 ## Usage
 
 It autodetects the Caddy container and, from it, the image, the mounted `Caddyfile` and the

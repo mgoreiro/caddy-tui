@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 18:50+0200\n"
+"POT-Creation-Date: 2026-10-18 18:52+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -93,6 +93,9 @@ msgid "View Caddyfile"
 msgstr ""
 
 msgid "Create backup (Caddyfile+.env)"
+msgstr ""
+
+msgid "Export configuration"
 msgstr ""
 
 msgid "Undo last change"
@@ -815,6 +818,72 @@ msgstr ""
 msgid "Opening caddy-tui..."
 msgstr ""
 
+#, python-brace-format
+msgid "Unexpected entry in the file: {name}"
+msgstr ""
+
+msgid "The file is too big."
+msgstr ""
+
+#, python-brace-format
+msgid "Not a caddy-tui export: {error}"
+msgstr ""
+
+msgid "Not a caddy-tui export (missing or unsupported manifest)."
+msgstr ""
+
+#, python-brace-format
+msgid "{name} is missing or corrupted in the export."
+msgstr ""
+
+msgid "The export has no Caddyfile."
+msgstr ""
+
+msgid "== caddy-tui: restore an export =="
+msgstr ""
+
+#, python-brace-format
+msgid "Export from {host} ({date}), caddy-tui {version}; image {image}."
+msgstr ""
+
+#, python-brace-format
+msgid "Contains: {files}"
+msgstr ""
+
+msgid ""
+"A Caddy that is not in Docker is running on this machine. Continue anyway?"
+msgstr ""
+
+#, python-brace-format
+msgid "Restore it into {path} and start Caddy?"
+msgstr ""
+
+msgid "The configuration in the export is NOT valid"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"A container called '{name}' already exists; remove it or restore on another "
+"machine."
+msgstr ""
+
+msgid ""
+"docker compose v2 is not available: Caddy will run as a plain container "
+"(without the certificates, if any)."
+msgstr ""
+
+msgid "Certificates and ACME account restored."
+msgstr ""
+
+#, python-brace-format
+msgid "Could not restore the certificates: {error}"
+msgstr ""
+
+msgid ""
+"The export also had alerts / bans settings. Run: sudo caddy-tui --setup-"
+"alerts to set the periodic check up again."
+msgstr ""
+
 msgid "Welcome. Press a key from the menu."
 msgstr ""
 
@@ -1502,6 +1571,47 @@ msgid ""
 "container."
 msgstr ""
 
+msgid "Save to"
+msgstr ""
+
+msgid "The file holds your .env: it is created readable only by you"
+msgstr ""
+
+msgid "Include certificates"
+msgstr ""
+
+msgid ""
+"Avoids asking Let's Encrypt again on the new server. Contains private keys!"
+msgstr ""
+
+msgid "Include the alerts settings"
+msgstr ""
+
+msgid "Telegram token and chat (alert.env)"
+msgstr ""
+
+msgid "Enter a file path inside an existing folder"
+msgstr ""
+
+msgid "That file already exists"
+msgstr ""
+
+msgid "Export the configuration"
+msgstr ""
+
+msgid "Export"
+msgstr ""
+
+msgid "Exporting..."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Exported to {path} ({size} KB).\n"
+"Contains: {files}\n"
+"On the new machine: caddy-tui --import {name}"
+msgstr ""
+
 msgid "Language"
 msgstr ""
 
@@ -1591,10 +1701,32 @@ msgstr ""
 msgid "with --auto-block: show what would be banned, change nothing"
 msgstr ""
 
+msgid ""
+"write the configuration (Caddyfile, compose, .env...) to a file to move it "
+"to another server"
+msgstr ""
+
+msgid ""
+"with --export: include the certificates and ACME account (private keys!)"
+msgstr ""
+
+msgid "with --export: include the alerts settings (Telegram token)"
+msgstr ""
+
+msgid "restore an export made with --export into a new Caddy in Docker"
+msgstr ""
+
+msgid "with --import: do not ask for confirmation"
+msgstr ""
+
 msgid "This program needs an interactive terminal."
 msgstr ""
 
 msgid "Docker is not installed or not in PATH."
+msgstr ""
+
+#, python-brace-format
+msgid "{path} already exists."
 msgstr ""
 
 msgid "Set up a new Caddy now with the guided installer?"

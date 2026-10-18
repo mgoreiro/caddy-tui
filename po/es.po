@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 18:22+0200\n"
+"POT-Creation-Date: 2026-10-18 18:52+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -92,6 +92,9 @@ msgstr "Ver Caddyfile"
 
 msgid "Create backup (Caddyfile+.env)"
 msgstr "Crear backup (Caddyfile+.env)"
+
+msgid "Export configuration"
+msgstr "Exportar configuración"
 
 msgid "Undo last change"
 msgstr "Deshacer último cambio"
@@ -884,6 +887,81 @@ msgstr ""
 msgid "Opening caddy-tui..."
 msgstr "Abriendo caddy-tui..."
 
+#, python-brace-format
+msgid "Unexpected entry in the file: {name}"
+msgstr "Entrada inesperada en el fichero: {name}"
+
+msgid "The file is too big."
+msgstr "El fichero es demasiado grande."
+
+#, python-brace-format
+msgid "Not a caddy-tui export: {error}"
+msgstr "No es una exportación de caddy-tui: {error}"
+
+msgid "Not a caddy-tui export (missing or unsupported manifest)."
+msgstr ""
+"No es una exportación de caddy-tui (falta el manifiesto o no es compatible)."
+
+#, python-brace-format
+msgid "{name} is missing or corrupted in the export."
+msgstr "{name} falta o está dañado en la exportación."
+
+msgid "The export has no Caddyfile."
+msgstr "La exportación no tiene Caddyfile."
+
+msgid "== caddy-tui: restore an export =="
+msgstr "== caddy-tui: restaurar una exportación =="
+
+#, python-brace-format
+msgid "Export from {host} ({date}), caddy-tui {version}; image {image}."
+msgstr "Exportación de {host} ({date}), caddy-tui {version}; imagen {image}."
+
+#, python-brace-format
+msgid "Contains: {files}"
+msgstr "Contiene: {files}"
+
+msgid ""
+"A Caddy that is not in Docker is running on this machine. Continue anyway?"
+msgstr ""
+"Hay un Caddy fuera de Docker funcionando en esta máquina. ¿Continuar de "
+"todos modos?"
+
+#, python-brace-format
+msgid "Restore it into {path} and start Caddy?"
+msgstr "¿Restaurarla en {path} y arrancar Caddy?"
+
+msgid "The configuration in the export is NOT valid"
+msgstr "La configuración de la exportación NO es válida"
+
+#, python-brace-format
+msgid ""
+"A container called '{name}' already exists; remove it or restore on another "
+"machine."
+msgstr ""
+"Ya existe un contenedor llamado '{name}'; elimínalo o restaura en otra "
+"máquina."
+
+msgid ""
+"docker compose v2 is not available: Caddy will run as a plain container "
+"(without the certificates, if any)."
+msgstr ""
+"docker compose v2 no está disponible: Caddy se ejecutará como un contenedor "
+"simple (sin los certificados, si los hay)."
+
+msgid "Certificates and ACME account restored."
+msgstr "Certificados y cuenta ACME restaurados."
+
+#, python-brace-format
+msgid "Could not restore the certificates: {error}"
+msgstr "No se pudieron restaurar los certificados: {error}"
+
+msgid ""
+"The export also had alerts / bans settings. Run: sudo caddy-tui --setup-"
+"alerts to set the periodic check up again."
+msgstr ""
+"La exportación también traía ajustes de alertas / baneos. Ejecuta: sudo "
+"caddy-tui --setup-alerts para volver a configurar la comprobación periódica."
+
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
 
@@ -1602,6 +1680,52 @@ msgstr ""
 "Imagen anterior: {id}. Para volver atrás: docker tag {id} {ref} y recrea el "
 "contenedor."
 
+msgid "Save to"
+msgstr "Guardar en"
+
+msgid "The file holds your .env: it is created readable only by you"
+msgstr "El fichero contiene tu .env: se crea legible solo por ti"
+
+msgid "Include certificates"
+msgstr "Incluir certificados"
+
+msgid ""
+"Avoids asking Let's Encrypt again on the new server. Contains private keys!"
+msgstr ""
+"Evita pedirlos otra vez a Let's Encrypt en el servidor nuevo. ¡Contiene "
+"claves privadas!"
+
+msgid "Include the alerts settings"
+msgstr "Incluir los ajustes de alertas"
+
+msgid "Telegram token and chat (alert.env)"
+msgstr "Token y chat de Telegram (alert.env)"
+
+msgid "Enter a file path inside an existing folder"
+msgstr "Indica una ruta de fichero dentro de una carpeta que exista"
+
+msgid "That file already exists"
+msgstr "Ese fichero ya existe"
+
+msgid "Export the configuration"
+msgstr "Exportar la configuración"
+
+msgid "Export"
+msgstr "Exportar"
+
+msgid "Exporting..."
+msgstr "Exportando..."
+
+#, python-brace-format
+msgid ""
+"Exported to {path} ({size} KB).\n"
+"Contains: {files}\n"
+"On the new machine: caddy-tui --import {name}"
+msgstr ""
+"Exportado a {path} ({size} KB).\n"
+"Contiene: {files}\n"
+"En la máquina nueva: caddy-tui --import {name}"
+
 msgid "Language"
 msgstr "Idioma"
 
@@ -1705,11 +1829,37 @@ msgstr "con --auto-block: hasta dónde mirar atrás en el log (por defecto 15m)"
 msgid "with --auto-block: show what would be banned, change nothing"
 msgstr "con --auto-block: muestra qué se baneará, sin cambiar nada"
 
+msgid ""
+"write the configuration (Caddyfile, compose, .env...) to a file to move it "
+"to another server"
+msgstr ""
+"escribe la configuración (Caddyfile, compose, .env...) en un fichero para "
+"llevarla a otro servidor"
+
+msgid ""
+"with --export: include the certificates and ACME account (private keys!)"
+msgstr ""
+"con --export: incluye los certificados y la cuenta ACME (¡claves privadas!)"
+
+msgid "with --export: include the alerts settings (Telegram token)"
+msgstr "con --export: incluye los ajustes de alertas (token de Telegram)"
+
+msgid "restore an export made with --export into a new Caddy in Docker"
+msgstr ""
+"restaura una exportación hecha con --export en un Caddy nuevo en Docker"
+
+msgid "with --import: do not ask for confirmation"
+msgstr "con --import: no pide confirmación"
+
 msgid "This program needs an interactive terminal."
 msgstr "Este programa necesita un terminal interactivo."
 
 msgid "Docker is not installed or not in PATH."
 msgstr "Docker no está instalado o no está en el PATH."
+
+#, python-brace-format
+msgid "{path} already exists."
+msgstr "{path} ya existe."
 
 msgid "Set up a new Caddy now with the guided installer?"
 msgstr "¿Instalar ahora un Caddy nuevo con el asistente?"

@@ -1,3 +1,12 @@
+caddy-tui (1.7.0) unstable; urgency=medium
+
+  * New: --export / [o] writes the configuration (Caddyfile, compose, .env and,
+    optionally, certificates and alerts settings) to a checksummed tar.gz, and
+    --import restores it into a new Caddy in Docker on another server,
+    validating first and putting the same certificates back.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 21:00:00 +0200
+
 caddy-tui (1.6.0) unstable; urgency=medium
 
   * New [u]: undo the last change. Shows the diff against the latest earlier
