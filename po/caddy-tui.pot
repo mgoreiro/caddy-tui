@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 15:03+0200\n"
+"POT-Creation-Date: 2026-10-18 15:13+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -48,6 +48,9 @@ msgid "Manage services"
 msgstr ""
 
 msgid "Traffic monitor"
+msgstr ""
+
+msgid "Blocked IPs"
 msgstr ""
 
 msgid "Diagnostics & repair"
@@ -379,6 +382,13 @@ msgstr ""
 
 #, python-brace-format
 msgid "HTTPS certificates valid ({n})"
+msgstr ""
+
+#, python-brace-format
+msgid "The IP blocklist is not applied to: {sites}"
+msgstr ""
+
+msgid "Fix: open [i] and choose \"Re-apply the blocklist to all sites\"."
 msgstr ""
 
 #, python-brace-format
@@ -930,7 +940,7 @@ msgstr ""
 msgid "(services created with the wizard [a] include it by default)."
 msgstr ""
 
-msgid "[p] pause · [w] window · [c] clear · [q] back"
+msgid "[p] pause · [w] window · [c] clear · [b] block IP · [q] back"
 msgstr ""
 
 msgid "Log stream closed (container stopped?)"
@@ -1002,6 +1012,65 @@ msgid "Probing the sites (this can take a few seconds)..."
 msgstr ""
 
 msgid "There are no named sites to probe in the Caddyfile."
+msgstr ""
+
+msgid ""
+"Not a valid IP or range (loopback and ranges wider than /8 are refused)."
+msgstr ""
+
+#, python-brace-format
+msgid "{ip} is already blocked."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"{ip} is a private (LAN) address. Blocking it may lock you out. Continue?"
+msgstr ""
+
+#, python-brace-format
+msgid "Block {ip}? Its connections will be dropped on every site."
+msgstr ""
+
+#, python-brace-format
+msgid "{ip} blocked (previous copy: {path})."
+msgstr ""
+
+msgid "Block an IP or range…"
+msgstr ""
+
+#, python-brace-format
+msgid "Unblock {ip}"
+msgstr ""
+
+msgid "Re-apply the blocklist to all sites"
+msgstr ""
+
+#, python-brace-format
+msgid "Blocked IPs: {n}"
+msgstr ""
+
+msgid "IP or range (CIDR)"
+msgstr ""
+
+msgid "E.g. 203.0.113.5 or 198.51.100.0/24"
+msgstr ""
+
+msgid "Block an IP or range"
+msgstr ""
+
+#, python-brace-format
+msgid "{ip} unblocked (previous copy: {path})."
+msgstr ""
+
+#, python-brace-format
+msgid "Blocklist re-applied to all sites (previous copy: {path})."
+msgstr ""
+
+msgid "Block which address?"
+msgstr ""
+
+#, python-brace-format
+msgid "{ip}   {n} requests · {bad} with 4xx/5xx"
 msgstr ""
 
 msgid "Language"

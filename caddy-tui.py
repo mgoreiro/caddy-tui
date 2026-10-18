@@ -35,6 +35,7 @@ import difflib
 import getpass
 import gettext
 import hashlib
+import ipaddress
 import json
 import os
 import queue
@@ -169,6 +170,7 @@ MENU = [
     ("a", N_("Add service (wizard)")),
     ("m", N_("Manage services")),
     ("t", N_("Traffic monitor")),
+    ("i", N_("Blocked IPs")),
     ("d", N_("Diagnostics & repair")),
     ("h", N_("HTTPS certificates")),
     ("p", N_("Probe services")),
@@ -463,6 +465,82 @@ def ago(ts, now=None):
     return _("{n} d ago").format(n=int(secs // 86400))
 
 
+# ----------------------------------------------------------- IP blocklist ---
+BLOCK_NAME = "caddy_tui_blocklist"
+BLOCK_MATCHER = "caddy_tui_blocked"
+BLOCK_MARK = "# caddy-tui: blocked IPs (managed from the [i] screen, do not edit by hand)"
+
+
+def normalize_network(text):
+    """'1.2.3.4' / '198.51.100.0/24' -> canonical text. Raises ValueError for anything unsafe or invalid."""
+    net = ipaddress.ip_network(text.strip(), strict=False)
+    if net.is_loopback or net.is_unspecified or net.is_multicast:
+        raise ValueError(text)
+    if net.prefixlen < (8 if net.version == 4 else 32):            # refuse absurdly wide ranges
+        raise ValueError(text)
+    return str(net.network_address) if net.num_addresses == 1 else str(net)
+
+
+def get_blocked_ips(text):
+    m = re.search(rf"^\s*@{BLOCK_MATCHER}\s+client_ip\s+(.+)$", text, re.M)
+    return m.group(1).split() if m else []
+
+
+def strip_blocklist(text):
+    """Remove caddy-tui's blocklist snippet, its marker comment and every `import` of it."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        st = lines[i].strip()
+        if st == BLOCK_MARK or st == f"import {BLOCK_NAME}":
+            i += 1
+        elif st == f"({BLOCK_NAME}) {{":
+            depth, i = 1, i + 1
+            while i < len(lines) and depth > 0:
+                depth += lines[i].count("{") - lines[i].count("}")
+                i += 1
+            if i < len(lines) and not lines[i].strip():
+                i += 1                                   # the blank line that separated it from what follows
+        else:
+            out.append(lines[i])
+            i += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).rstrip("\n") + "\n"
+
+
+def set_blocked_ips(text, ips):
+    """Rewrite the blocklist: `import` as the first line of every site, and the snippet defined BEFORE
+    the first site (Caddy only resolves an import to a snippet that is already defined)."""
+    text = strip_blocklist(text)
+    if not ips:
+        return text
+    lines = text.split("\n")
+    blocks = find_site_blocks(text)
+    for blk in reversed(blocks):
+        lines.insert(blk["start"] + 1, f"\timport {BLOCK_NAME}")
+    snippet = [BLOCK_MARK, f"({BLOCK_NAME}) {{", f"\t@{BLOCK_MATCHER} client_ip {' '.join(ips)}",
+               f"\tabort @{BLOCK_MATCHER}", "}", ""]
+    if not blocks:
+        return "\n".join(lines).rstrip("\n") + "\n\n" + "\n".join(snippet[:-1]) + "\n"
+    at = blocks[0]["marker"] if blocks[0]["marker"] is not None else blocks[0]["start"]
+    while at > 0 and lines[at - 1].strip().startswith("#"):
+        at -= 1                                          # keep the site's own comments attached to it
+    if at > 0 and lines[at - 1].strip():
+        snippet.insert(0, "")
+    lines[at:at] = snippet
+    return "\n".join(lines)
+
+
+def sync_blocklist(text):
+    """Make sure every site imports the blocklist (new sites, edited blocks)."""
+    ips = get_blocked_ips(text)
+    return set_blocked_ips(text, ips) if ips else text
+
+
+def sites_without_blocklist(text):
+    lines = text.split("\n")
+    return [" ".join(b["addr"]) for b in find_site_blocks(text)
+            if not any(l.strip() == f"import {BLOCK_NAME}" for l in lines[b["start"]:b["end"] + 1])]
+
+
 # -------------------------------------------------- services (wizard) ----
 HOST_RE = re.compile(r"^(?:https?://)?[A-Za-z0-9*]([A-Za-z0-9.\-*]*[A-Za-z0-9])?(:\d{1,5})?$|^\{\$[A-Z_]+\}$")
 
@@ -529,6 +607,7 @@ def build_site_block(v, pw_hash=None, verb="added"):
 
 def parse_simple_block(lines):
     """-> (values, password_hash) if the block is exactly what the wizard form can produce, else None."""
+    lines = [l for l in lines if l.strip() != f"import {BLOCK_NAME}"]
     body = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
     m = re.match(r"^(\S+)\s*\{$", body[0]) if body else None
     if not m:
@@ -1096,6 +1175,11 @@ def diagnose():
         add(level, title, *details)
     if n_certs and not problems:
         add("ok", _("HTTPS certificates valid ({n})").format(n=n_certs))
+
+    unprotected = sites_without_blocklist(text) if get_blocked_ips(text) else []
+    if unprotected:
+        add("warn", _("The IP blocklist is not applied to: {sites}").format(sites=", ".join(unprotected)),
+            _("Fix: open [i] and choose \"Re-apply the blocklist to all sites\"."))
 
     probes = probe_services(text, skip_ports=set(missing))
     bad = [p for p in probes if p[0] != "ok"]
@@ -2001,16 +2085,17 @@ class App:
 
         return self.form(title, fields, check)
 
-    def _commit_caddyfile(self, new, template, **kw):
+    def _commit_caddyfile(self, new, template, title=None, **kw):
         """Validate `new`, back up and save it; offer a reload."""
         self.busy(_("Validating changes..."))
+        new = sync_blocklist(new)
         ok, out = validate_text(new)
         if not ok:
             self.show("✘ " + _("The configuration is NOT valid"), out)
             return False
         bk = backup_caddyfile()
         write_in_place(new)
-        self.show(_("Manage services"), "✔ " + template.format(path=os.path.relpath(bk, BASE), **kw))
+        self.show(title or _("Manage services"), "✔ " + template.format(path=os.path.relpath(bk, BASE), **kw))
         self.draw()
         state, __ = container_state()
         if state == "running" and self.ask(_("Reload Caddy now?"), True):
@@ -2113,7 +2198,7 @@ class App:
             self.show(_("Add service: ERROR"), _("Could not hash the password (is Docker available?)."))
             return
         block = build_site_block(v, pw)
-        new = current.rstrip("\n") + "\n\n" + block
+        new = sync_blocklist(current.rstrip("\n") + "\n\n" + block)
         ok, out = validate_text(new)
         if not ok:
             self.show("✘ " + _("The generated configuration is NOT valid"), out + "\n\n" + block)
@@ -2159,6 +2244,8 @@ class App:
                     wi = (wi + 1) % len(windows)
                 elif k == ord("c"):
                     feed.events.clear()
+                elif k == ord("b"):
+                    self.block_from_monitor(feed, windows[wi], paused_at)
         finally:
             feed.close()
             self.scr.timeout(1000)
@@ -2222,7 +2309,7 @@ class App:
             scr.addstr(ly + i, 1, time.strftime("%H:%M:%S", time.localtime(ts)))
             scr.addstr(ly + i, 10, f"{st}", curses.color_pair(col) | curses.A_BOLD)
             scr.addstr(ly + i, 14, f"{meth:6} {host}{uri}  ← {ip}  {dur * 1000:.0f}ms {human_bytes(size)}"[: w - 15])
-        foot = _("[p] pause · [w] window · [c] clear · [q] back")
+        foot = _("[p] pause · [w] window · [c] clear · [b] block IP · [q] back")
         if not feed.alive:
             foot = "⚠ " + _("Log stream closed (container stopped?)") + " · " + foot
         scr.addstr(h - 1, 0, foot[: w - 1], curses.A_DIM)
@@ -2318,6 +2405,82 @@ class App:
             return
         self.show(_("Probe services"), "\n".join(format_items(rows) + ["", summary_line(rows)]))
 
+    # -- IP blocklist
+    def block_ip(self, raw):
+        """Validate, confirm and add `raw` (IP or CIDR) to the blocklist."""
+        try:
+            ip = normalize_network(raw)
+        except ValueError:
+            self.show(_("Blocked IPs"), _("Not a valid IP or range (loopback and ranges wider than /8 are refused)."))
+            return
+        with open(CADDYFILE, encoding="utf-8") as f:
+            text = f.read()
+        current = get_blocked_ips(text)
+        if ip in current:
+            self.show(_("Blocked IPs"), _("{ip} is already blocked.").format(ip=ip))
+            return
+        if ipaddress.ip_network(ip, strict=False).is_private:
+            self.draw()
+            if not self.ask(_("{ip} is a private (LAN) address. Blocking it may lock you out. Continue?").format(ip=ip)):
+                return
+        self.draw()
+        if not self.ask(_("Block {ip}? Its connections will be dropped on every site.").format(ip=ip), True):
+            self.show(_("Blocked IPs"), _("Cancelled. Nothing was changed."))
+            return
+        self._commit_caddyfile(set_blocked_ips(text, current + [ip]), _("{ip} blocked (previous copy: {path})."),
+                               title=_("Blocked IPs"), ip=ip)
+
+    def act_blocklist(self):
+        with open(CADDYFILE, encoding="utf-8") as f:
+            text = f.read()
+        ips = get_blocked_ips(text)
+        missing = sites_without_blocklist(text) if ips else []
+        options = [("block", _("Block an IP or range…"))]
+        options += [("unblock", _("Unblock {ip}").format(ip=ip), ip) for ip in ips]
+        if missing:
+            options.append(("sync", _("Re-apply the blocklist to all sites")))
+        options.append(("cancel", _("Cancel")))
+        j = self.pick(_("Blocked IPs: {n}").format(n=len(ips)), [o[1] for o in options])
+        if j is None or options[j][0] == "cancel":
+            return
+        kind = options[j][0]
+        if kind == "block":
+            fields = [dict(key="ip", label=_("IP or range (CIDR)"), kind="text", value="",
+                           hint=_("E.g. 203.0.113.5 or 198.51.100.0/24"))]
+
+            def check(v):
+                try:
+                    normalize_network(v["ip"])
+                except ValueError:
+                    return _("Not a valid IP or range (loopback and ranges wider than /8 are refused).")
+                return None
+            v = self.form(_("Block an IP or range"), fields, check)
+            if v is not None:
+                self.block_ip(v["ip"])
+        elif kind == "unblock":
+            ip = options[j][2]
+            self._commit_caddyfile(set_blocked_ips(text, [x for x in ips if x != ip]),
+                                   _("{ip} unblocked (previous copy: {path})."), title=_("Blocked IPs"), ip=ip)
+        else:
+            self._commit_caddyfile(set_blocked_ips(text, ips), _("Blocklist re-applied to all sites (previous copy: {path})."),
+                                   title=_("Blocked IPs"))
+
+    def block_from_monitor(self, feed, window, paused_at):
+        now = paused_at or time.time()
+        ev = [e for e in feed.events if now - window[0] <= e[0] <= now]
+        with open(CADDYFILE, encoding="utf-8") as f:
+            blocked = set(get_blocked_ips(f.read()))
+        counts, bad = Counter(e[4] for e in ev), Counter(e[4] for e in ev if e[5] >= 400)
+        top = [(ip, n) for ip, n in counts.most_common(15) if ip not in blocked and ip != "-"]
+        if not top:
+            return
+        i = self.pick(_("Block which address?"),
+                      [_("{ip}   {n} requests · {bad} with 4xx/5xx").format(ip=ip.ljust(39), n=n, bad=bad[ip]) for ip, n in top])
+        self.scr.timeout(500)
+        if i is not None:
+            self.block_ip(top[i][0])
+            self.scr.timeout(500)
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -2328,7 +2491,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),

@@ -12,6 +12,10 @@ caddy-tui (1.6.0) unstable; urgency=medium
     status, response time and certificate validity, locally and through the
     public route. The diagnostics (so --check and the alerts) also check that
     every site answers, so a 5xx or an expired certificate raises an alert.
+  * New [i]: blocked IPs. Block or unblock an IP or CIDR range on every site
+    (a snippet defined before the first site plus an import in each one);
+    [b] in the traffic monitor blocks one of the busiest addresses. New or
+    edited sites keep the protection; the diagnostics warn if a site lacks it.
 
  -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
 
