@@ -1,24 +1,24 @@
-Architectures: all
+Architectures: all amd64 arm64 armhf armel i386 riscv64 ppc64el s390x
 Codename: stable
 Components: main
-Date: Sun, 18 Oct 2026 17:49:50 +0000
+Date: Sun, 18 Oct 2026 18:21:54 +0000
 Description: caddy-tui: terminal UI for Caddy in Docker
 Label: caddy-tui
 Origin: caddy-tui
 Suite: stable
 MD5Sum:
- 8b9ceff00c303e8ea246d7d946ff8c58              196 Release
+ 65f179ec99442f67784b7be3dd652199              247 Release
  ff020d6f8f4e9df55a324d01d92a0bbd             3276 main/binary-all/Packages
  5dd72d8d51d00c21b17f8d829f53945a             1228 main/binary-all/Packages.gz
 SHA1:
- b8896e277e7d52bbc0f9b3c04911ca05cb7b1b7e              196 Release
+ bcf3b6691740ef54861c1adb1f8600637e24347e              247 Release
  2021637e70b7471b6913593b5b6f4caa1308ba95             3276 main/binary-all/Packages
  682e0a3a653d794caf79b48084707d4e811e08c6             1228 main/binary-all/Packages.gz
 SHA256:
- f5084b8ae291b6cc36f35190bf33dfed99d5d8d0aeeaa031f44837c8bdf4787a              196 Release
+ b86ff50645b1c61923f8a3e89dcfb1d7064f447f33015d3f7126feffac85f88d              247 Release
  ac44e46c2ef5d3daf0c9ff37a4f3f299e974205ba0668334a8b7957049c3f94e             3276 main/binary-all/Packages
  d8e9e57ab5f3a381f8cb6a38ff9ed04115ebeba5f727419ff9d8dee998c9a002             1228 main/binary-all/Packages.gz
 SHA512:
- f80c66fddb9019056b973b8be39b4514dfd4fdf1ee6ded86cc12ff06ef37bd8dde7dd52d63549c6fe825fae9e97e1dfdd59968823d5e1edd0fe320a80849e05d              196 Release
+ 3f56ca6276be20e1fe958e552db54d8e34a484212e6a2fb5caddb12fa434df7fd97823b0e8b444019cc8e6f2cb2b0652d307eae1fdc7ba5836f8403517a2189e              247 Release
  f97bb700da2e411ae3cc927ee2e14373ce2316c94dd2325500f3b553fe2816405d3f515f18207cf54e97153c807c419d3b0d911dea6442fc982e1558eb66b148             3276 main/binary-all/Packages
  39d099555f739f95450e72f815a1396ce581d75be982aaa796ec0d3029715b1c6454453e1f26749160ad73d03c11345a576ccb640620f75f98fd8f06c7692f27             1228 main/binary-all/Packages.gz

@@ -1,43 +1,43 @@
 -----BEGIN PGP SIGNED MESSAGE-----
 Hash: SHA512
 
-Architectures: all
+Architectures: all amd64 arm64 armhf armel i386 riscv64 ppc64el s390x
 Codename: stable
 Components: main
-Date: Sun, 18 Oct 2026 17:49:50 +0000
+Date: Sun, 18 Oct 2026 18:21:54 +0000
 Description: caddy-tui: terminal UI for Caddy in Docker
 Label: caddy-tui
 Origin: caddy-tui
 Suite: stable
 MD5Sum:
- 8b9ceff00c303e8ea246d7d946ff8c58              196 Release
+ 65f179ec99442f67784b7be3dd652199              247 Release
  ff020d6f8f4e9df55a324d01d92a0bbd             3276 main/binary-all/Packages
  5dd72d8d51d00c21b17f8d829f53945a             1228 main/binary-all/Packages.gz
 SHA1:
- b8896e277e7d52bbc0f9b3c04911ca05cb7b1b7e              196 Release
+ bcf3b6691740ef54861c1adb1f8600637e24347e              247 Release
  2021637e70b7471b6913593b5b6f4caa1308ba95             3276 main/binary-all/Packages
  682e0a3a653d794caf79b48084707d4e811e08c6             1228 main/binary-all/Packages.gz
 SHA256:
- f5084b8ae291b6cc36f35190bf33dfed99d5d8d0aeeaa031f44837c8bdf4787a              196 Release
+ b86ff50645b1c61923f8a3e89dcfb1d7064f447f33015d3f7126feffac85f88d              247 Release
  ac44e46c2ef5d3daf0c9ff37a4f3f299e974205ba0668334a8b7957049c3f94e             3276 main/binary-all/Packages
  d8e9e57ab5f3a381f8cb6a38ff9ed04115ebeba5f727419ff9d8dee998c9a002             1228 main/binary-all/Packages.gz
 SHA512:
- f80c66fddb9019056b973b8be39b4514dfd4fdf1ee6ded86cc12ff06ef37bd8dde7dd52d63549c6fe825fae9e97e1dfdd59968823d5e1edd0fe320a80849e05d              196 Release
+ 3f56ca6276be20e1fe958e552db54d8e34a484212e6a2fb5caddb12fa434df7fd97823b0e8b444019cc8e6f2cb2b0652d307eae1fdc7ba5836f8403517a2189e              247 Release
  f97bb700da2e411ae3cc927ee2e14373ce2316c94dd2325500f3b553fe2816405d3f515f18207cf54e97153c807c419d3b0d911dea6442fc982e1558eb66b148             3276 main/binary-all/Packages
  39d099555f739f95450e72f815a1396ce581d75be982aaa796ec0d3029715b1c6454453e1f26749160ad73d03c11345a576ccb640620f75f98fd8f06c7692f27             1228 main/binary-all/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEun4jgWiAFjkhvHDeFcJjLdOQEO4FAmrVBr4ACgkQFcJjLdOQ
-EO5ZhA//U6B6KSGxEyBZBzbt8ryE5o2byigcfMPZIfNinPM82yXZoEVembPeSfbN
-Ah2mhnJswsZr0LvUNtjfhkvPb2f8i8GokXdT/pZXGXv1/aN1PXukVoB6mW2q4VdN
-jZEhT6SqsETvpqtDSyr6JN8bHEtYVnxBw0Y9yz4hdaBSOMkTq3xRbqMjtM5ncKFi
-YN70CWm+nQ2klygIyELZAWFmcD4M1NvSST6NAhP+EL//Yvs+P3cu9+TTz68eSPdo
-jMq4yuRjWFOSvZZGVjVxkv95c9VdzZxkaFRs7m1Qs8g0B9yfwfb2JTCN0Z7F+G/H
-lSWFeUDRTfmXP1cNd4qd1PTQ7O5o4GGNBTkqcle5pdgAkvs0TRNeTBUUvo43L1R4
-j0V1hSBJ/bWHvy1cb6CpgVvJdpIX0dwgM+3gomV8RYh8PG0daJlwAGWKUK3azbEa
-r+JMq4HI1nTt1nZbm1XeOJLhmOmanN2ogSlKbmeGa6syQYrSWM48oUe12AcsRgRm
-qREA/21VX+qyYZzfUruEMPUmtOxl1a+rAREqQeit/Hf+gNcRPFWbLeWncucqzfU8
-i1e9D7wUGnLtvigPBdjPh/oe2RdIe2REdYiTN0HVNuOUduNSOmv/W7L08z+B9wVG
-ZrNbPLv4KxDVWsyke1OL8Tq1zRMuKhzRueqPYXM/VT5LMo4e1ck=
-=5LEv
+iQIzBAEBCgAdFiEEun4jgWiAFjkhvHDeFcJjLdOQEO4FAmrVDkIACgkQFcJjLdOQ
+EO65AQ//chLN83tpR+KZi4rkqLt5U4o4iAvqnbw7xFK25RJ02Nc3tokP2O8Mgacd
+mVLjXS38Yds5PnNVjdgAegSMCOYNrmulHVi5kjp7FLLLYFZBgjS6Ekg2R2GAWThC
+LqOio5R+1ibsc5k7gTz0BtH1aoGfoF960IZd4iLCQGMhn2OCbvE1nKOr6n/1e/Zf
+x40bi9+HZNC2lqlQdLl05pABGjqh9PKmIVbEuFdJdtqQ1Y925jSyn4aWBp5BJifP
+joEiVlP/RKHmkVe4FKGbb1Wb6rw9v35wNcvtemklVswM7NaCcF7RCPy3jDEVKvG8
+rKGAZ5VuXgkk4cr3wUng4KFEt9/Zb+7ralYbNxSgNG2rtlYDyChz5s7rAVa7kRPm
+ku4DN/02qTkNF7PIZexVNqAEIH46qtclYfgOir+te77PeYeaHer4AySXT7DmmvW2
+XeQeYdawI8Rz8Vvp9rkDp7ZbUgxlFcjW5D3k7vOCh23yw7tUdt8gTYeh3ofdE2oR
+4yrZpF+2xQLPyvLE9O9uulodomT64odNej8ADGbfXuG+ktJyOYLNSL1nm7RCYUN7
+ybEgdmIfEMhts82SPHtSvmQaidiyO9XWU60WkCeJx3YSRi3Vo+IBA+C+r7YfE1s7
+pSzMp9Xj7rc9xCDz+eYjsIYQ36gevJ58l2rXOL7XgOox3jqQUa4=
+=9UKZ
 -----END PGP SIGNATURE-----
