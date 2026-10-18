@@ -35,7 +35,7 @@ apt/
     main/binary-all/Packages  Packages.gz
 ```
 
-Los paquetes son `Architecture: all`, así que un único índice `binary-all` sirve a cualquier CPU (comprobado desde clientes arm64, amd64 y armhf).
+Los paquetes son `Architecture: all`, así que un único índice `binary-all` sirve a cualquier CPU (comprobado desde clientes arm64, amd64 y armhf). El `Release` lista `all` **primero** (es lo que hace que apt descargue `binary-all`) y después las arquitecturas habituales (amd64, arm64, armhf, armel, i386, riscv64, ppc64el, s390x): sin ellas, los equipos con varias arquitecturas habilitadas muestran avisos *"doesn't support architecture"*. No quites `all` de esa lista.
 El `Release` declara `Origin: caddy-tui` y `Suite`/`Codename: stable`, que es lo que usan los patrones de `unattended-upgrades` y el pinning de apt.
 
 ## Qué hace el workflow de release

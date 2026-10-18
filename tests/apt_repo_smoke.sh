@@ -26,7 +26,7 @@ ls "$repo/pool/main/c/caddy-tui" | grep -q 1.0.0
 ls "$repo/pool/main/c/caddy-tui" | grep -q 1.0.1
 grep -q '^Version: 1.0.0' "$repo/dists/stable/main/binary-all/Packages"
 grep -q '^Version: 1.0.1' "$repo/dists/stable/main/binary-all/Packages"
-grep -q '^Architectures: all' "$repo/dists/stable/Release"
+grep -Eq '^Architectures: all( [a-z0-9]+)* arm64( |$)' "$repo/dists/stable/Release"      # 'all' first, common architectures listed too
 
 # signatures verify against the exported public key, and the Release hashes cover Packages.gz
 export GNUPGHOME=$(mktemp -d /tmp/smokeverify.XXXXXX)
