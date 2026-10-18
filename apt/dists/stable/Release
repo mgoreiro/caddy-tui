@@ -1,0 +1,24 @@
+Architectures: all
+Codename: stable
+Components: main
+Date: Sun, 18 Oct 2026 17:48:52 +0000
+Description: caddy-tui: terminal UI for Caddy in Docker
+Label: caddy-tui
+Origin: caddy-tui
+Suite: stable
+MD5Sum:
+ 2f50097c32166443ff79e873ed1648d0              196 Release
+ a118f83bfcadc0eae360fb8e5faff673             1638 main/binary-all/Packages
+ 26b990da927fc0bf18dd04981cc25a8f             1007 main/binary-all/Packages.gz
+SHA1:
+ cfe9cdb70a4d547b9ded1969fcf6968977460441              196 Release
+ e486c5ca92f9a4279bf06a11d19bd8116ca6cde5             1638 main/binary-all/Packages
+ 6f32e12a7fbf3343dc13cd146af8948ea117854c             1007 main/binary-all/Packages.gz
+SHA256:
+ 6bb8ed880a2018030fd88593423f84c5fb6def1884dcceed39ee4567d6ac0733              196 Release
+ a76aa451bfe8a31d073d744d9de0f0fb316527c3ca45aaa6d2dc8f784f01e801             1638 main/binary-all/Packages
+ 7d90badc6317c533daab6db25cb744d51402dffdf0e033d45a3dcc0f76061f38             1007 main/binary-all/Packages.gz
+SHA512:
+ a1de920f1346ac41ad28b0684a538626ef035b82709a499fe1ba87e342d10eb611441212e3759b10d0b223e808c09bcc85bd5b2068de2fb9f155299ca1301ee7              196 Release
+ 5db61a5fa3d02fdb62081b84fd62f5c4649bed99ec7cec92cbccba656b21d5822de1a064b46aa0dd9719ac8e1e4b18a71ebd9c84a86ebc79285cdb31003c37d5             1638 main/binary-all/Packages
+ 69a93911261b400233a85b7fd079bbc5c9fc7318013a6caf7cf81cfcf70e15eca01c23d23875a4d96aa5919227fe7424b31f8bbca5a6313383cc6b2d794ddc6e             1007 main/binary-all/Packages.gz
