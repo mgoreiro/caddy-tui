@@ -54,6 +54,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 |-------|--------|
 | `a` | **Asistente para añadir un servicio**: formulario (dominio, destino, HTTPS al destino, gzip, cabeceras de seguridad, log, usuario/contraseña opcional). Genera el bloque, lo valida, muestra vista previa y lo añade |
 | `m` | **Gestionar servicios**: lista los sitios del Caddyfile y permite **editar** (con el mismo formulario del asistente si el bloque es de los que el asistente podría haber escrito; si no, en tu editor, solo ese bloque) o **eliminar** uno. Todo se valida en el contexto del fichero completo y con copia previa |
+| `p` | **Probar servicios**: hace una petición a cada sitio con nombre del Caddyfile e indica el estado HTTP, el tiempo de respuesta y la validez del certificado. Dos comprobaciones por sitio: *local* (directa al Caddy de esta máquina con el nombre del sitio, verificando el certificado) y *pública* (por DNS como un cliente; si falla solo es un aviso porque puede ser hairpin NAT). El diagnóstico (y con él `--check` y las alertas) hace también la local, así que un `502` o un certificado caducado generan alerta |
 | `t` | **Monitor de tráfico** en vivo: peticiones/s, códigos 2xx–5xx, latencia, gráfica, top dominios e IPs y últimas peticiones (`p` pausa, `w` ventana 1/5/15 min). Requiere `log` en el sitio |
 | `d` | **Diagnóstico y reparación** (ver abajo) |
 | `h` | **Certificados HTTPS**: nombres, emisor y caducidad de cada certificado que Caddy tiene guardado; avisa si uno está a punto de caducar (Caddy debería haberlo renovado), si un dominio aún no tiene o si Let's Encrypt/ACME está fallando (mostrando el error). El diagnóstico incluye las mismas comprobaciones |
@@ -77,6 +78,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 - **Destinos inalcanzables**: otra red Docker (detecta cuál), `host.docker.internal` sin
   `extra_hosts`, conexión rechazada, timeout.
 - Errores recientes en los logs, agrupados.
+- **Que cada sitio responda** (comprobado desde esta máquina, por HTTPS verificando el certificado): los `5xx`, los timeouts y los problemas de certificado son errores. Los sitios con la CA interna de Caddy (`localhost`, `*.local`…) dan un aviso por el certificado pero se comprueba igualmente su estado.
 
 Cada problema explica su solución y la TUI ofrece aplicarla: parchea el `docker-compose`
 (puertos, `extra_hosts`, redes externas; idempotente, validado con `docker compose config`

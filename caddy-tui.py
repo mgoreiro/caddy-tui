@@ -29,6 +29,7 @@ Headless mode for cron / systemd / monitoring (read-only):
     EDITOR                          editor to use (default nano / vi)
 """
 import argparse
+import concurrent.futures
 import curses
 import difflib
 import getpass
@@ -40,6 +41,7 @@ import queue
 import re
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -169,6 +171,7 @@ MENU = [
     ("t", N_("Traffic monitor")),
     ("d", N_("Diagnostics & repair")),
     ("h", N_("HTTPS certificates")),
+    ("p", N_("Probe services")),
     ("e", N_("Edit Caddyfile")),
     ("v", N_("Validate configuration")),
     ("l", N_("Reload (no downtime)")),
@@ -853,6 +856,12 @@ def read_certificates():
     return certs
 
 
+def is_internal_name(host):
+    """Names that get certificates from Caddy's internal CA instead of Let's Encrypt."""
+    # same rule as Caddy: these never go to a public ACME CA (".lan", ".test"... do, and fail)
+    return "." not in host or host.endswith((".localhost", ".local", ".internal", ".home.arpa"))
+
+
 def site_domains(text):
     """Public domain names Caddy must get certificates for, per the Caddyfile."""
     env, out = runtime_env(text), []
@@ -862,8 +871,7 @@ def site_domains(text):
         a = re.sub(r"^https://", "", a)
         a = re.sub(r"\{\$([A-Za-z_]\w*)(:[^}]*)?\}", lambda m: env.get(m.group(1)) or (m.group(2) or ":")[1:], a)
         a = re.sub(r":\d+$", "", a).lower()
-        if (not a or "." not in a or "*" in a or re.fullmatch(r"[\d.]+|[0-9a-f:]+", a)
-                or a.endswith((".localhost", ".local", ".test", ".internal", ".lan", ".home.arpa"))):
+        if not a or "*" in a or re.fullmatch(r"[\d.]+|[0-9a-f:]+", a) or is_internal_name(a):
             continue
         if a not in out:
             out.append(a)
@@ -1088,6 +1096,13 @@ def diagnose():
         add(level, title, *details)
     if n_certs and not problems:
         add("ok", _("HTTPS certificates valid ({n})").format(n=n_certs))
+
+    probes = probe_services(text, skip_ports=set(missing))
+    bad = [p for p in probes if p[0] != "ok"]
+    for level, title, details in bad:
+        add(level, title, *details)
+    if probes and not bad:
+        add("ok", _("All {n} site(s) answer correctly (checked from this machine)").format(n=len(probes)))
     return items, fixes, need
 
 
@@ -1416,6 +1431,146 @@ def remove_alerts(args):
         os.unlink(ALERT_ENV)
         print(_("Deleted {path}.").format(path=ALERT_ENV))
     return 0
+
+
+# ------------------------------------------------------------ service probes ---
+def site_endpoints(text):
+    """[(scheme, host, port)] of every named site in the Caddyfile (no wildcards, IPs or bare ports)."""
+    env, out = runtime_env(text), []
+    for a in site_addresses(text):
+        scheme = "http" if a.startswith("http://") else "https"
+        a = re.sub(r"^https?://", "", a)
+        a = re.sub(r"\{\$([A-Za-z_]\w*)(:[^}]*)?\}", lambda m: env.get(m.group(1)) or (m.group(2) or ":")[1:], a)
+        m = re.fullmatch(r"([^:/]*)(?::(\d+))?(?:/.*)?", a)
+        if not m:
+            continue
+        host, port = m.group(1).lower(), int(m.group(2) or (80 if scheme == "http" else 443))
+        if not host or "*" in host or re.fullmatch(r"[\d.]+", host):
+            continue
+        ep = (scheme, host, port)
+        if ep not in out:
+            out.append(ep)
+    return out
+
+
+def probe_http(scheme, host, port, connect_to, timeout=6, cafile=None, verify=True):
+    """GET / on connect_to:port with SNI/Host=host. -> {status, ms, error, cert_error}."""
+    t0 = time.monotonic()
+    result = {"status": None, "ms": 0, "error": None, "cert_error": False}
+    try:
+        sock = socket.create_connection((connect_to, port), timeout=timeout)
+        try:
+            if scheme == "https":
+                ctx = ssl.create_default_context()
+                if cafile:
+                    ctx.load_verify_locations(cafile)
+                if not verify:
+                    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock, server_hostname=host)
+            sock.settimeout(timeout)
+            sock.sendall(f"GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: caddy-tui-probe\r\n"
+                         f"Accept: */*\r\nConnection: close\r\n\r\n".encode())
+            data = b""
+            while b"\r\n" not in data and len(data) < 4096:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            sock.close()
+        m = re.match(rb"HTTP/\d(?:\.\d)? (\d{3})", data)
+        if m:
+            result["status"] = int(m.group(1))
+        else:
+            result["error"] = _("not an HTTP response")
+    except ssl.SSLCertVerificationError as e:
+        result.update(error=e.verify_message or str(e), cert_error=True)
+    except (socket.timeout, TimeoutError):
+        result["error"] = _("timeout")
+    except ssl.SSLError as e:
+        result["error"] = f"TLS: {e.reason or e}"
+    except OSError as e:
+        result["error"] = e.strerror or str(e)
+    result["ms"] = int((time.monotonic() - t0) * 1000)
+    return result
+
+
+def resolve_host(host):
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError:
+        return []
+    ips = []
+    for info in sorted(infos, key=lambda i: i[0] != socket.AF_INET):      # IPv4 first
+        if info[4][0] not in ips:
+            ips.append(info[4][0])
+    return ips
+
+
+def local_probe_row(ep, result):
+    """(level, title, details) for the check against this machine's Caddy."""
+    scheme, host, port = ep
+    url = f"{scheme}://{host}" + ("" if port == (80 if scheme == "http" else 443) else f":{port}")
+    if result["cert_error"]:
+        if is_internal_name(host):
+            return "warn", url, [_("Certificate not trusted by this machine (normal with Caddy's internal CA): {reason}").format(
+                reason=result["error"])]
+        return "err", url, [_("TLS certificate problem: {reason}").format(reason=result["error"])]
+    if result["error"]:
+        return "err", url, [_("No answer from Caddy: {error}").format(error=result["error"])]
+    if result["status"] >= 500:
+        return "err", url, [_("The service answers HTTP {status} ({ms} ms): the upstream may be down.").format(
+            status=result["status"], ms=result["ms"])]
+    cert = _(", certificate valid") if scheme == "https" and not result.get("cert_warning") else ""
+    details = [_("HTTP {status} in {ms} ms{cert}").format(status=result["status"], ms=result["ms"], cert=cert)]
+    if result.get("cert_warning"):
+        details.append(_("Certificate not trusted by this machine (normal with Caddy's internal CA): {reason}").format(
+            reason=result["cert_warning"]))
+        return "warn", url, details
+    return "ok", url, details
+
+
+def probe_services(text, skip_ports=(), with_public=False, workers=8):
+    """Check every named site. -> [(level, title, [details])].
+    Local check: straight to 127.0.0.1 with the site's name (certificate verified).
+    Public check: through DNS, like a client would (can fail from inside the LAN: hairpin NAT)."""
+    eps = [e for e in site_endpoints(text) if e[2] not in skip_ports]
+
+    def work(ep):
+        scheme, host, port = ep
+        local = probe_http(scheme, host, port, "127.0.0.1")
+        if local["cert_error"] and is_internal_name(host):
+            # internal CA: the certificate cannot be trusted here, but we can still see if the service answers
+            unverified = probe_http(scheme, host, port, "127.0.0.1", verify=False)
+            if unverified["status"] is not None:
+                local = dict(unverified, cert_warning=local["error"])
+        pub = ips = None
+        if with_public:
+            ips = resolve_host(host)
+            if ips:
+                pub = probe_http(scheme, host, port, ips[0])
+        return ep, local, ips, pub
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        done = list(pool.map(work, eps))
+    rows = []
+    for ep, local, ips, pub in done:
+        level, title, details = local_probe_row(ep, local)
+        if with_public:
+            if not ips:
+                details.append(_("DNS: {domain} does not resolve from this machine").format(domain=ep[1]))
+                level = "warn" if level == "ok" else level
+            else:
+                details.append(_("DNS: {domain} → {ips}").format(domain=ep[1], ips=", ".join(ips[:3])))
+                if pub["status"] is not None:
+                    details.append(_("Public route ({ip}): HTTP {status} in {ms} ms").format(
+                        ip=ips[0], status=pub["status"], ms=pub["ms"]))
+                else:
+                    details.append(_("Public route ({ip}): {error}. It may be hairpin NAT: test from outside your network.").format(
+                        ip=ips[0], error=pub["error"]))
+                    level = "warn" if level == "ok" else level
+        rows.append((level, title, details))
+    return rows
 
 
 # --------------------------------------------------------------------- UI ----
@@ -2149,6 +2304,20 @@ class App:
         L = format_items(rows) + ["", summary_line(rows)]
         self.show(_("HTTPS certificates"), "\n".join(L))
 
+    def act_probe(self):
+        state, __ = container_state()
+        if state != "running":
+            self.show(_("Probe services"), _("The container is not running. Use [s] to start it."))
+            return
+        self.busy(_("Probing the sites (this can take a few seconds)..."))
+        with open(CADDYFILE, encoding="utf-8") as f:
+            text = f.read()
+        rows = probe_services(text, with_public=True)
+        if not rows:
+            self.show(_("Probe services"), _("There are no named sites to probe in the Caddyfile."))
+            return
+        self.show(_("Probe services"), "\n".join(format_items(rows) + ["", summary_line(rows)]))
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -2159,7 +2328,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),

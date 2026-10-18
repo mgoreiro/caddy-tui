@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 14:57+0200\n"
+"POT-Creation-Date: 2026-10-18 15:03+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -54,6 +54,9 @@ msgid "Diagnostics & repair"
 msgstr ""
 
 msgid "HTTPS certificates"
+msgstr ""
+
+msgid "Probe services"
 msgstr ""
 
 msgid "Edit Caddyfile"
@@ -378,6 +381,10 @@ msgstr ""
 msgid "HTTPS certificates valid ({n})"
 msgstr ""
 
+#, python-brace-format
+msgid "All {n} site(s) answer correctly (checked from this machine)"
+msgstr ""
+
 msgid ""
 "Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Run: "
 "sudo caddy-tui --setup-alerts"
@@ -505,6 +512,55 @@ msgstr ""
 
 #, python-brace-format
 msgid "Deleted {path}."
+msgstr ""
+
+msgid "not an HTTP response"
+msgstr ""
+
+msgid "timeout"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Certificate not trusted by this machine (normal with Caddy's internal CA): "
+"{reason}"
+msgstr ""
+
+#, python-brace-format
+msgid "TLS certificate problem: {reason}"
+msgstr ""
+
+#, python-brace-format
+msgid "No answer from Caddy: {error}"
+msgstr ""
+
+#, python-brace-format
+msgid "The service answers HTTP {status} ({ms} ms): the upstream may be down."
+msgstr ""
+
+msgid ", certificate valid"
+msgstr ""
+
+#, python-brace-format
+msgid "HTTP {status} in {ms} ms{cert}"
+msgstr ""
+
+#, python-brace-format
+msgid "DNS: {domain} does not resolve from this machine"
+msgstr ""
+
+#, python-brace-format
+msgid "DNS: {domain} → {ips}"
+msgstr ""
+
+#, python-brace-format
+msgid "Public route ({ip}): HTTP {status} in {ms} ms"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Public route ({ip}): {error}. It may be hairpin NAT: test from outside your "
+"network."
 msgstr ""
 
 msgid "Welcome. Press a key from the menu."
@@ -940,6 +996,12 @@ msgid ""
 msgstr ""
 
 msgid "Reading certificates..."
+msgstr ""
+
+msgid "Probing the sites (this can take a few seconds)..."
+msgstr ""
+
+msgid "There are no named sites to probe in the Caddyfile."
 msgstr ""
 
 msgid "Language"

@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 14:57+0200\n"
+"POT-Creation-Date: 2026-10-18 15:03+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -53,6 +53,9 @@ msgstr "Diagnóstico y reparación"
 
 msgid "HTTPS certificates"
 msgstr "Certificados HTTPS"
+
+msgid "Probe services"
+msgstr "Probar servicios"
 
 msgid "Edit Caddyfile"
 msgstr "Editar Caddyfile"
@@ -404,6 +407,11 @@ msgstr "Sin errores en los logs de los últimos 10 min"
 msgid "HTTPS certificates valid ({n})"
 msgstr "Certificados HTTPS válidos ({n})"
 
+#, python-brace-format
+msgid "All {n} site(s) answer correctly (checked from this machine)"
+msgstr ""
+"Los {n} sitio(s) responden correctamente (comprobado desde esta máquina)"
+
 msgid ""
 "Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Run: "
 "sudo caddy-tui --setup-alerts"
@@ -541,6 +549,61 @@ msgstr "¿Borrar también la configuración de Telegram guardada ({path})?"
 #, python-brace-format
 msgid "Deleted {path}."
 msgstr "Borrado {path}."
+
+msgid "not an HTTP response"
+msgstr "no es una respuesta HTTP"
+
+msgid "timeout"
+msgstr "tiempo agotado"
+
+#, python-brace-format
+msgid ""
+"Certificate not trusted by this machine (normal with Caddy's internal CA): "
+"{reason}"
+msgstr ""
+"Certificado no confiable para esta máquina (normal con la CA interna de "
+"Caddy): {reason}"
+
+#, python-brace-format
+msgid "TLS certificate problem: {reason}"
+msgstr "Problema con el certificado TLS: {reason}"
+
+#, python-brace-format
+msgid "No answer from Caddy: {error}"
+msgstr "Caddy no responde: {error}"
+
+#, python-brace-format
+msgid "The service answers HTTP {status} ({ms} ms): the upstream may be down."
+msgstr ""
+"El servicio responde HTTP {status} ({ms} ms): puede que el destino esté "
+"caído."
+
+msgid ", certificate valid"
+msgstr ", certificado válido"
+
+#, python-brace-format
+msgid "HTTP {status} in {ms} ms{cert}"
+msgstr "HTTP {status} en {ms} ms{cert}"
+
+#, python-brace-format
+msgid "DNS: {domain} does not resolve from this machine"
+msgstr "DNS: {domain} no se resuelve desde esta máquina"
+
+#, python-brace-format
+msgid "DNS: {domain} → {ips}"
+msgstr "DNS: {domain} → {ips}"
+
+#, python-brace-format
+msgid "Public route ({ip}): HTTP {status} in {ms} ms"
+msgstr "Ruta pública ({ip}): HTTP {status} en {ms} ms"
+
+#, python-brace-format
+msgid ""
+"Public route ({ip}): {error}. It may be hairpin NAT: test from outside your "
+"network."
+msgstr ""
+"Ruta pública ({ip}): {error}. Puede ser hairpin NAT: prueba desde fuera de "
+"tu red."
 
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
@@ -997,6 +1060,12 @@ msgstr ""
 
 msgid "Reading certificates..."
 msgstr "Leyendo certificados..."
+
+msgid "Probing the sites (this can take a few seconds)..."
+msgstr "Probando los sitios (puede tardar unos segundos)..."
+
+msgid "There are no named sites to probe in the Caddyfile."
+msgstr "No hay sitios con nombre que probar en el Caddyfile."
 
 msgid "Language"
 msgstr "Idioma"
