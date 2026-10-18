@@ -1,5 +1,9 @@
 # caddy-tui
 
+[![tests](https://github.com/mgoreiro/caddy-tui/actions/workflows/tests.yml/badge.svg)](https://github.com/mgoreiro/caddy-tui/actions/workflows/tests.yml)
+[![release](https://img.shields.io/github/v/release/mgoreiro/caddy-tui)](https://github.com/mgoreiro/caddy-tui/releases/latest)
+[![license](https://img.shields.io/github/license/mgoreiro/caddy-tui)](LICENSE)
+
 Interfaz de terminal (TUI) para gestionar un **Caddy que corre en Docker**: editar su
 configuración con seguridad, recargarla sin cortes, añadir servicios con un asistente,
 ver el tráfico en vivo y diagnosticar los problemas típicos.
@@ -8,28 +12,24 @@ ver el tráfico en vivo y diagnosticar los problemas típicos.
 
 Sin dependencias: solo **Python 3.8+** (librería estándar, `curses`) y **Docker**.
 
+**Contenido:** [Instalación](#instalación) · [¿Aún no tienes Caddy?](#aún-no-tienes-caddy-caddy-tui-lo-instala) · [Llevar la configuración a otro servidor](#llevar-la-configuración-a-otro-servidor---export----import) · [Uso](#uso) · [Idioma](#idioma) · [Funciones](#funciones) · [Monitorización y alertas](#monitorización-y-alertas---check) · [Desarrollo](#desarrollo) · [Documentación](#documentación)
+
 ## Instalación
 
-### Con apt (recomendado: `apt upgrade` lo mantiene al día)
-
-Debian, Ubuntu, Raspberry Pi OS, Armbian… —el paquete sirve para cualquier arquitectura—. El repositorio está firmado; huella de la clave: `BA7E 2381 6880 1639 21BC  70DE 15C2 632D D390 10EE`.
+En Debian, Ubuntu, Raspberry Pi OS o Armbian, añade una sola vez el repositorio apt firmado y `apt upgrade` mantendrá caddy-tui al día:
 
 ```bash
 curl -fsSL https://mgoreiro.github.io/caddy-tui/apt/caddy-tui.gpg | sudo tee /usr/share/keyrings/caddy-tui.gpg >/dev/null
 echo "deb [signed-by=/usr/share/keyrings/caddy-tui.gpg] https://mgoreiro.github.io/caddy-tui/apt stable main" | sudo tee /etc/apt/sources.list.d/caddy-tui.list
 sudo apt update && sudo apt install caddy-tui
+sudo caddy-tui
 ```
 
-### Desde el fichero de la release
+La huella de la clave es `BA7E 2381 6880 1639 21BC  70DE 15C2 632D D390 10EE` (compruébala con `gpg --show-keys --with-fingerprint /usr/share/keyrings/caddy-tui.gpg`).
+El paquete no depende de la arquitectura, así que sirve para cualquier CPU (x86-64, placas ARM…).
 
-Descarga el `.deb` de la [última release](https://github.com/mgoreiro/caddy-tui/releases/latest) e instálalo (junto a él hay un `SHA256SUMS`):
-
-```bash
-sudo apt install ./caddy-tui_*_all.deb
-caddy-tui
-```
-
-También puedes ejecutarlo sin instalar: es un único fichero Python (`./caddy-tui.py`; para tener el español desde el repositorio ejecuta antes `make mo`).
+**Guía de instalación completa** — qué hace cada comando, el fichero `.deb`, ejecutarlo desde el código, actualizar, actualizaciones automáticas, desinstalar y solución de problemas:
+[docs/install.es.md](docs/install.es.md).
 
 ## ¿Aún no tienes Caddy? caddy-tui lo instala
 
@@ -197,6 +197,17 @@ make update-po   # sincroniza los .po con el .pot
 **Añadir un idioma:** `cp po/caddy-tui.pot po/xx.po`, rellena las traducciones (cabecera `Language: xx`), `make mo` y listo; las pruebas verifican que no falte ni sobre ninguna cadena.
 
 **Paquete Debian:** `dpkg-buildpackage -us -uc -b` (necesita `debhelper dh-python gettext python3`). Al publicar una release en GitHub, una acción construye el `.deb` y lo adjunta.
+
+**Repositorio apt (mantenimiento):** el procedimiento completo está en [docs/apt-repository.es.md](docs/apt-repository.es.md). En resumen: al publicar una release de GitHub se construye el `.deb` y además se añade al repositorio firmado de la rama `gh-pages` (`tools/update-apt-repo.sh`, clave en el secreto `APT_GPG_PRIVATE_KEY`, clave pública `apt/caddy-tui.gpg`). La clave caduca en 2029-10; para renovarla o rotarla, genera una nueva, actualiza el secreto, publica una release y pide a los usuarios que reinstalen `caddy-tui.gpg`. `tests/apt_repo_smoke.sh` comprueba el script en el CI.
+
+## Documentación
+
+| | |
+|---|---|
+| [docs/install.es.md](docs/install.es.md) | Instalar y actualizar: repositorio apt, `.deb`, desde el código; solución de problemas |
+| [docs/apt-repository.es.md](docs/apt-repository.es.md) | Mantenimiento: cómo se construye el repositorio apt, publicar una release, rotar la clave |
+| `man caddy-tui` · `caddy-tui --help` | Opciones y teclas del programa instalado |
+| [Releases](https://github.com/mgoreiro/caddy-tui/releases) | Qué cambia en cada versión (y los ficheros `.deb`) |
 
 ## Licencia
 
