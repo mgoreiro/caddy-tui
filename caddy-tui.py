@@ -174,6 +174,7 @@ MENU = [
     ("d", N_("Diagnostics & repair")),
     ("h", N_("HTTPS certificates")),
     ("p", N_("Probe services")),
+    ("y", N_("Update Caddy image")),
     ("e", N_("Edit Caddyfile")),
     ("v", N_("Validate configuration")),
     ("l", N_("Reload (no downtime)")),
@@ -1181,6 +1182,14 @@ def diagnose():
         add("warn", _("The IP blocklist is not applied to: {sites}").format(sites=", ".join(unprotected)),
             _("Fix: open [i] and choose \"Re-apply the blocklist to all sites\"."))
 
+    img = check_image_update(cached_registry_digest)
+    if img["status"] in ("update", "pulled"):
+        add("warn", _("A newer Caddy image is available ({ref})").format(ref=img["ref"]) if img["status"] == "update"
+            else _("A newer Caddy image is already pulled but the container still uses the old one"),
+            _("Fix: press [y] to update Caddy (your Caddyfile is validated with the new version first)."))
+    elif img["status"] == "current":
+        add("ok", _("Caddy image up to date (Caddy {version})").format(version=img["version"]))
+
     probes = probe_services(text, skip_ports=set(missing))
     bad = [p for p in probes if p[0] != "ok"]
     for level, title, details in bad:
@@ -1655,6 +1664,128 @@ def probe_services(text, skip_ports=(), with_public=False, workers=8):
                     level = "warn" if level == "ok" else level
         rows.append((level, title, details))
     return rows
+
+
+# ------------------------------------------------------------ image updates ---
+ACCEPT_MANIFESTS = ", ".join([
+    "application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"])
+
+
+def parse_image(ref):
+    """'caddy:2-alpine' -> (registry host, repository, tag); None for digest-pinned references."""
+    if "@" in ref:
+        return None
+    name, tag = ref, "latest"
+    if ":" in ref.rsplit("/", 1)[-1]:
+        name, tag = ref.rsplit(":", 1)
+    parts = name.split("/")
+    if len(parts) > 1 and ("." in parts[0] or ":" in parts[0] or parts[0] == "localhost"):
+        registry, repo = parts[0], "/".join(parts[1:])
+    else:
+        registry, repo = "registry-1.docker.io", "/".join(parts)
+    if registry in ("docker.io", "index.docker.io"):
+        registry = "registry-1.docker.io"
+    if registry == "registry-1.docker.io" and "/" not in repo:
+        repo = "library/" + repo
+    return registry, repo, tag
+
+
+def registry_digest(ref, timeout=10):
+    """Digest the registry currently serves for `ref` (anonymous bearer-token flow). Raises RuntimeError."""
+    parsed = parse_image(ref)
+    if not parsed:
+        raise RuntimeError(_("the image is pinned by digest"))
+    registry, repo, tag = parsed
+    url = f"https://{registry}/v2/{repo}/manifests/{tag}"
+
+    def head(token=None):
+        headers = {"Accept": ACCEPT_MANIFESTS, "User-Agent": f"caddy-tui/{__version__}"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return urllib.request.urlopen(urllib.request.Request(url, method="HEAD", headers=headers), timeout=timeout)
+
+    try:
+        try:
+            resp = head()
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                raise RuntimeError(f"HTTP {e.code}")
+            challenge = e.headers.get("WWW-Authenticate", "")
+            realm = re.search(r'realm="([^"]+)"', challenge)
+            if not realm:
+                raise RuntimeError("HTTP 401")
+            query = {k: m.group(1) for k in ("service", "scope") for m in [re.search(rf'{k}="([^"]+)"', challenge)] if m}
+            query.setdefault("scope", f"repository:{repo}:pull")
+            with urllib.request.urlopen(f"{realm.group(1)}?{urllib.parse.urlencode(query)}", timeout=timeout) as r:
+                body = json.load(r)
+            resp = head(body.get("token") or body.get("access_token"))
+        with resp:
+            digest = resp.headers.get("Docker-Content-Digest")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise RuntimeError(str(e))
+    if not digest:
+        raise RuntimeError(_("the registry did not return a digest"))
+    return digest
+
+
+def cache_file():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, APP, "image-check.json")
+
+
+def cached_registry_digest(ref, ttl=6 * 3600, now=None):
+    """registry_digest with a small on-disk cache, so periodic checks do not hit the registry every time."""
+    now = time.time() if now is None else now
+    try:
+        with open(cache_file(), encoding="utf-8") as f:
+            cached = json.load(f)
+        if cached.get("ref") == ref and now - cached.get("ts", 0) < ttl:
+            return cached["digest"]
+    except (OSError, ValueError, KeyError):
+        pass
+    digest = registry_digest(ref)
+    try:
+        os.makedirs(os.path.dirname(cache_file()), exist_ok=True)
+        with open(cache_file(), "w", encoding="utf-8") as f:
+            json.dump({"ref": ref, "digest": digest, "ts": now}, f)
+    except OSError:
+        pass
+    return digest
+
+
+def caddy_version():
+    rc, out = run(["docker", "exec", CONTAINER, "caddy", "version"], timeout=15)
+    return out.split()[0] if rc == 0 and out.split() else "?"
+
+
+def check_image_update(digest_fn=None):
+    """-> {status, ref, version, error, image_id}; status: current / update / pulled / unknown / local."""
+    digest_fn = digest_fn or registry_digest
+    ref = IMAGE
+    info = {"status": "unknown", "ref": ref, "version": caddy_version(), "error": None, "image_id": ""}
+    rc, cid = run(["docker", "inspect", "-f", "{{.Image}}", CONTAINER], timeout=15)
+    cid = cid.strip() if rc == 0 else ""
+    info["image_id"] = cid
+    rc, tagid = run(["docker", "image", "inspect", "-f", "{{.Id}}", ref], timeout=15)
+    if cid and rc == 0 and tagid.strip() != cid:
+        info["status"] = "pulled"                       # a newer image is already local, the container still uses the old one
+        return info
+    rc, js = run(["docker", "image", "inspect", "-f", "{{json .RepoDigests}}", cid or ref], timeout=15)
+    try:
+        local = [d.split("@", 1)[1] for d in (json.loads(js) or []) if "@" in d] if rc == 0 else []
+    except ValueError:
+        local = []
+    if not local:
+        info["status"] = "local"                        # built locally: nothing to compare with
+        return info
+    try:
+        remote = digest_fn(ref)
+    except RuntimeError as e:
+        info["error"] = str(e)
+        return info
+    info["status"] = "current" if remote in local else "update"
+    return info
 
 
 # --------------------------------------------------------------------- UI ----
@@ -2481,6 +2612,61 @@ class App:
             self.block_ip(top[i][0])
             self.scr.timeout(500)
 
+    def act_image(self):
+        state, __ = container_state()
+        if state == "missing":
+            self.show(_("Caddy image"), _("The container does not exist."))
+            return
+        self.busy(_("Checking for a newer Caddy image..."))
+        info = check_image_update()
+        lines = [_("Image: {ref}").format(ref=info["ref"]), _("Running version: {version}").format(version=info["version"]), ""]
+        msg = {
+            "current": ("✔", _("Up to date: the container runs the latest {ref}.").format(ref=info["ref"])),
+            "update": ("⚠", _("A newer {ref} is available.").format(ref=info["ref"])),
+            "pulled": ("⚠", _("A newer image is already pulled but the container still runs the old one. Recreate it to use it.")),
+            "local": ("✔", _("This image was not pulled from a registry; there is nothing to compare it with.")),
+            "unknown": ("⚠", _("Could not check for updates: {error}").format(error=info["error"])),
+        }[info["status"]]
+        lines.append(f"{msg[0]} {msg[1]}")
+        self.show(_("Caddy image"), "\n".join(lines))
+        if info["status"] not in ("update", "pulled"):
+            return
+        self.draw()
+        question = (_("Pull the new image and recreate Caddy?") if info["status"] == "update"
+                    else _("Recreate Caddy with the new image?"))
+        if self.ask(question, True):
+            self.update_image(info, pull=info["status"] == "update")
+
+    def update_image(self, info, pull=True):
+        """Pull, check the Caddyfile against the new version, then recreate the container."""
+        old_version = info["version"]
+        if pull:
+            self.busy(_("Pulling the image..."))
+            rc, out = run(compose("pull", SERVICE) if COMPOSE else ["docker", "pull", info["ref"]], timeout=900)
+            if rc != 0:
+                self.show(_("Caddy image") + ": ERROR", out)
+                return
+        self.busy(_("Validating your Caddyfile with the new image..."))
+        with open(CADDYFILE, encoding="utf-8") as f:
+            ok, out = validate_text(f.read())
+        if not ok:
+            self.show("✘ " + _("The new image rejects your Caddyfile; the container was left untouched."), out)
+            return
+        if not COMPOSE:
+            self.show(_("Caddy image"), "✔ " + _("Image pulled. The container was not created with docker compose: recreate it yourself."))
+            return
+        self.busy(_("Recreate") + "...")
+        rc, out = run(compose("up", "-d", "--force-recreate", "--no-deps", SERVICE), timeout=300)
+        self.refresh_state(True)
+        if rc != 0:
+            self.show(_("Recreate") + ": ERROR", out)
+            return
+        time.sleep(2)
+        old_id = info["image_id"].replace("sha256:", "")[:12]
+        self.show(_("Caddy image"), "✔ " + _("Update finished: Caddy {old} → {new}.").format(old=old_version, new=caddy_version())
+                  + ("\n" + _("Previous image: {id}. To roll back: docker tag {id} {ref} and recreate the container.").format(
+                      id=old_id, ref=info["ref"]) if old_id else ""))
+
     def act_language(self):
         langs = available_languages()
         new = langs[(langs.index(LANG) + 1) % len(langs)] if LANG in langs else "en"
@@ -2491,7 +2677,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "y": self.act_image, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),

@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 15:13+0200\n"
+"POT-Creation-Date: 2026-10-18 15:22+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -59,6 +59,9 @@ msgstr "Certificados HTTPS"
 
 msgid "Probe services"
 msgstr "Probar servicios"
+
+msgid "Update Caddy image"
+msgstr "Actualizar imagen de Caddy"
 
 msgid "Edit Caddyfile"
 msgstr "Editar Caddyfile"
@@ -420,6 +423,28 @@ msgstr ""
 "sitios\"."
 
 #, python-brace-format
+msgid "A newer Caddy image is available ({ref})"
+msgstr "Hay una imagen de Caddy más reciente ({ref})"
+
+msgid ""
+"A newer Caddy image is already pulled but the container still uses the old "
+"one"
+msgstr ""
+"Ya hay una imagen de Caddy más nueva descargada pero el contenedor sigue con "
+"la antigua"
+
+msgid ""
+"Fix: press [y] to update Caddy (your Caddyfile is validated with the new "
+"version first)."
+msgstr ""
+"Solución: pulsa [y] para actualizar Caddy (antes se valida tu Caddyfile con "
+"la nueva versión)."
+
+#, python-brace-format
+msgid "Caddy image up to date (Caddy {version})"
+msgstr "Imagen de Caddy al día (Caddy {version})"
+
+#, python-brace-format
 msgid "All {n} site(s) answer correctly (checked from this machine)"
 msgstr ""
 "Los {n} sitio(s) responden correctamente (comprobado desde esta máquina)"
@@ -616,6 +641,12 @@ msgid ""
 msgstr ""
 "Ruta pública ({ip}): {error}. Puede ser hairpin NAT: prueba desde fuera de "
 "tu red."
+
+msgid "the image is pinned by digest"
+msgstr "la imagen está fijada por digest"
+
+msgid "the registry did not return a digest"
+msgstr "el registro no devolvió un digest"
 
 msgid "Welcome. Press a key from the menu."
 msgstr "Bienvenido. Pulsa una tecla del menú."
@@ -1142,6 +1173,80 @@ msgstr "¿Qué dirección bloquear?"
 #, python-brace-format
 msgid "{ip}   {n} requests · {bad} with 4xx/5xx"
 msgstr "{ip}   {n} peticiones · {bad} con 4xx/5xx"
+
+msgid "Caddy image"
+msgstr "Imagen de Caddy"
+
+msgid "The container does not exist."
+msgstr "El contenedor no existe."
+
+msgid "Checking for a newer Caddy image..."
+msgstr "Buscando una imagen de Caddy más reciente..."
+
+#, python-brace-format
+msgid "Image: {ref}"
+msgstr "Imagen: {ref}"
+
+#, python-brace-format
+msgid "Running version: {version}"
+msgstr "Versión en ejecución: {version}"
+
+#, python-brace-format
+msgid "Up to date: the container runs the latest {ref}."
+msgstr "Al día: el contenedor usa la última {ref}."
+
+#, python-brace-format
+msgid "A newer {ref} is available."
+msgstr "Hay una {ref} más reciente."
+
+msgid ""
+"A newer image is already pulled but the container still runs the old one. "
+"Recreate it to use it."
+msgstr ""
+"Ya hay una imagen más nueva descargada pero el contenedor sigue con la "
+"antigua. Recréalo para usarla."
+
+msgid ""
+"This image was not pulled from a registry; there is nothing to compare it "
+"with."
+msgstr "Esta imagen no se descargó de un registro; no hay con qué compararla."
+
+#, python-brace-format
+msgid "Could not check for updates: {error}"
+msgstr "No se pudo comprobar si hay actualizaciones: {error}"
+
+msgid "Pull the new image and recreate Caddy?"
+msgstr "¿Descargar la nueva imagen y recrear Caddy?"
+
+msgid "Recreate Caddy with the new image?"
+msgstr "¿Recrear Caddy con la nueva imagen?"
+
+msgid "Pulling the image..."
+msgstr "Descargando la imagen..."
+
+msgid "Validating your Caddyfile with the new image..."
+msgstr "Validando tu Caddyfile con la nueva imagen..."
+
+msgid "The new image rejects your Caddyfile; the container was left untouched."
+msgstr "La nueva imagen rechaza tu Caddyfile; el contenedor no se ha tocado."
+
+msgid ""
+"Image pulled. The container was not created with docker compose: recreate it "
+"yourself."
+msgstr ""
+"Imagen descargada. El contenedor no se creó con docker compose: recréalo tú."
+
+#, python-brace-format
+msgid "Update finished: Caddy {old} → {new}."
+msgstr "Actualización terminada: Caddy {old} → {new}."
+
+#, python-brace-format
+msgid ""
+"Previous image: {id}. To roll back: docker tag {id} {ref} and recreate the "
+"container."
+msgstr ""
+"Imagen anterior: {id}. Para volver atrás: docker tag {id} {ref} y recrea el "
+"contenedor."
 
 msgid "Language"
 msgstr "Idioma"

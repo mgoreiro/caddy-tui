@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 15:13+0200\n"
+"POT-Creation-Date: 2026-10-18 15:22+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -60,6 +60,9 @@ msgid "HTTPS certificates"
 msgstr ""
 
 msgid "Probe services"
+msgstr ""
+
+msgid "Update Caddy image"
 msgstr ""
 
 msgid "Edit Caddyfile"
@@ -392,6 +395,24 @@ msgid "Fix: open [i] and choose \"Re-apply the blocklist to all sites\"."
 msgstr ""
 
 #, python-brace-format
+msgid "A newer Caddy image is available ({ref})"
+msgstr ""
+
+msgid ""
+"A newer Caddy image is already pulled but the container still uses the old "
+"one"
+msgstr ""
+
+msgid ""
+"Fix: press [y] to update Caddy (your Caddyfile is validated with the new "
+"version first)."
+msgstr ""
+
+#, python-brace-format
+msgid "Caddy image up to date (Caddy {version})"
+msgstr ""
+
+#, python-brace-format
 msgid "All {n} site(s) answer correctly (checked from this machine)"
 msgstr ""
 
@@ -571,6 +592,12 @@ msgstr ""
 msgid ""
 "Public route ({ip}): {error}. It may be hairpin NAT: test from outside your "
 "network."
+msgstr ""
+
+msgid "the image is pinned by digest"
+msgstr ""
+
+msgid "the registry did not return a digest"
 msgstr ""
 
 msgid "Welcome. Press a key from the menu."
@@ -1071,6 +1098,75 @@ msgstr ""
 
 #, python-brace-format
 msgid "{ip}   {n} requests · {bad} with 4xx/5xx"
+msgstr ""
+
+msgid "Caddy image"
+msgstr ""
+
+msgid "The container does not exist."
+msgstr ""
+
+msgid "Checking for a newer Caddy image..."
+msgstr ""
+
+#, python-brace-format
+msgid "Image: {ref}"
+msgstr ""
+
+#, python-brace-format
+msgid "Running version: {version}"
+msgstr ""
+
+#, python-brace-format
+msgid "Up to date: the container runs the latest {ref}."
+msgstr ""
+
+#, python-brace-format
+msgid "A newer {ref} is available."
+msgstr ""
+
+msgid ""
+"A newer image is already pulled but the container still runs the old one. "
+"Recreate it to use it."
+msgstr ""
+
+msgid ""
+"This image was not pulled from a registry; there is nothing to compare it "
+"with."
+msgstr ""
+
+#, python-brace-format
+msgid "Could not check for updates: {error}"
+msgstr ""
+
+msgid "Pull the new image and recreate Caddy?"
+msgstr ""
+
+msgid "Recreate Caddy with the new image?"
+msgstr ""
+
+msgid "Pulling the image..."
+msgstr ""
+
+msgid "Validating your Caddyfile with the new image..."
+msgstr ""
+
+msgid "The new image rejects your Caddyfile; the container was left untouched."
+msgstr ""
+
+msgid ""
+"Image pulled. The container was not created with docker compose: recreate it "
+"yourself."
+msgstr ""
+
+#, python-brace-format
+msgid "Update finished: Caddy {old} → {new}."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Previous image: {id}. To roll back: docker tag {id} {ref} and recreate the "
+"container."
 msgstr ""
 
 msgid "Language"
