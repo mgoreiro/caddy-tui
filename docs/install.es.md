@@ -138,7 +138,7 @@ caddy-tui --lang es             # interfaz en español (o pulsa L dentro del pro
 - **Detecta tu contenedor de Caddy él solo** (y su Caddyfile, imagen y proyecto de docker compose). En [Uso](../README.es.md#uso) está cómo forzar cualquier valor.
 - Qué instala el paquete: `dpkg -L caddy-tui` — el programa (`/usr/bin/caddy-tui`), el manual, el catálogo en español y la documentación.
 - Qué crea después: `~/.config/caddy-tui/` (preferencia de idioma), `.caddy-backups/` junto a tu configuración (copias de seguridad) y, si activas las
-  alertas, `/etc/caddy-tui/` y `/var/lib/caddy-tui/`.
+  alertas, `/etc/caddy-tui/` y `/var/lib/caddy-tui/` (donde también está la base de estadísticas de tráfico, `stats.sqlite3`, y los baneos de escáneres).
 
 ## Actualizar
 
