@@ -51,7 +51,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -164,6 +164,7 @@ def state_label(state):
 
 MENU = [
     ("a", N_("Add service (wizard)")),
+    ("m", N_("Manage services")),
     ("t", N_("Traffic monitor")),
     ("d", N_("Diagnostics & repair")),
     ("h", N_("HTTPS certificates")),
@@ -410,18 +411,32 @@ def write_in_place(text):
 HOST_RE = re.compile(r"^(?:https?://)?[A-Za-z0-9*]([A-Za-z0-9.\-*]*[A-Za-z0-9])?(:\d{1,5})?$|^\{\$[A-Z_]+\}$")
 
 
+def find_site_blocks(text):
+    """Top-level site blocks: [{addr: [...], start, end, marker}] (line indexes, end inclusive).
+    `marker` is the line of caddy-tui's own '# Service ...' comment right above, if any."""
+    lines = text.split("\n")
+    blocks, depth, cur = [], 0, None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if depth == 0 and stripped.endswith("{"):
+            head = stripped[:-1].strip()
+            if head and not head.startswith("("):      # a bare global "{" and "(name)" snippets are not sites
+                prev = lines[i - 1] if i else ""
+                cur = {"addr": [a.strip(",") for a in head.split() if a.strip(",")], "start": i,
+                       "marker": i - 1 if prev.lstrip().startswith("# Service ") and "with caddy-tui" in prev else None}
+        depth = max(depth + line.count("{") - line.count("}"), 0)
+        if cur is not None and depth == 0:
+            cur["end"] = i
+            blocks.append(cur)
+            cur = None
+    return blocks
+
+
 def site_addresses(text):
     """Addresses of the top-level site blocks in the Caddyfile."""
-    sites, depth = [], 0
-    for line in text.splitlines():
-        stripped = line.strip()
-        if depth == 0 and stripped and not stripped.startswith("#") and stripped.endswith("{"):
-            head = stripped[:-1].strip()
-            if head and not head.startswith("("):  # a bare global "{" and "(name)" snippets are not sites
-                sites += [a.strip().rstrip(",") for a in head.split() if a.strip(",")]
-        depth += line.count("{") - line.count("}")
-        depth = max(depth, 0)
-    return sites
+    return [a for b in find_site_blocks(text) for a in b["addr"]]
 
 
 def hash_password(plain):
@@ -430,11 +445,11 @@ def hash_password(plain):
     return out.strip() if rc == 0 and out.startswith("$") else None
 
 
-def build_site_block(v, pw_hash=None):
+def build_site_block(v, pw_hash=None, verb="added"):
     upstream = v["upstream"].strip()
     if v["https_upstream"] and "://" not in upstream:
         upstream = "https://" + upstream
-    lines = [f"# Service added with caddy-tui ({datetime.now():%Y-%m-%d %H:%M})",
+    lines = [f"# Service {verb} with caddy-tui ({datetime.now():%Y-%m-%d %H:%M})",
              f"{v['host'].strip()} {{"]
     if v["user"] and pw_hash:
         lines += ["\tbasic_auth {", f"\t\t{v['user'].strip()} {pw_hash}", "\t}"]
@@ -454,6 +469,68 @@ def build_site_block(v, pw_hash=None):
         lines.append("\tlog")
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def parse_simple_block(lines):
+    """-> (values, password_hash) if the block is exactly what the wizard form can produce, else None."""
+    body = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+    m = re.match(r"^(\S+)\s*\{$", body[0]) if body else None
+    if not m:
+        return None
+    v = {"host": m.group(1), "upstream": "", "https_upstream": False, "skip_verify": False, "gzip": False,
+         "headers": False, "log": False, "user": "", "password": ""}
+    pw_hash = None
+    for l in body[1:-1]:
+        if l.startswith("reverse_proxy "):
+            up = l[len("reverse_proxy "):].rstrip("{").strip()
+            if up.startswith("https://"):
+                v["https_upstream"], up = True, up[len("https://"):]
+            v["upstream"] = up
+        elif l == "tls_insecure_skip_verify":
+            v["skip_verify"] = True
+        elif l == "encode gzip":
+            v["gzip"] = True
+        elif l.startswith("Strict-Transport-Security"):
+            v["headers"] = True
+        elif l == "log":
+            v["log"] = True
+        else:
+            ma = re.match(r"^(\S+)\s+(\$2[aby]\$\S+)$", l)
+            if ma:
+                v["user"], pw_hash = ma.group(1), ma.group(2)
+    if not v["upstream"]:
+        return None
+    norm = lambda ls: sorted(x.strip() for x in ls if x.strip() and not x.strip().startswith("#"))
+    same = norm(build_site_block(v, pw_hash).split("\n")) == norm(lines)
+    return (v, pw_hash) if same else None
+
+
+def remove_block(text, blk):
+    lines = text.split("\n")
+    a = blk["marker"] if blk["marker"] is not None else blk["start"]
+    del lines[a:blk["end"] + 1]
+    if 0 < a < len(lines) and not lines[a].strip() and not lines[a - 1].strip():
+        del lines[a]                                  # do not leave a double blank line behind
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def replace_block(text, blk, new_lines, with_marker=False):
+    lines = text.split("\n")
+    a = blk["marker"] if with_marker and blk["marker"] is not None else blk["start"]
+    lines[a:blk["end"] + 1] = new_lines
+    return "\n".join(lines)
+
+
+def block_label(lines):
+    """One-line description for the service list."""
+    head = lines[0].strip().rstrip("{").strip()
+    ups = ", ".join(f"{h}:{p}" for h, p, __ in parse_upstreams("\n".join(lines)))
+    text = head + (f"  →  {ups}" if ups else "")
+    if any(l.strip().startswith(("basic_auth", "basicauth")) for l in lines):
+        text += "  [auth]"
+    if parse_simple_block(lines) is None:
+        text += "  " + _("(custom block)")
+    return text
 
 
 # -------------------------------------------------- traffic monitor ------
@@ -1636,26 +1713,27 @@ class App:
         finally:
             self.scr.timeout(1000)
 
-    def act_add(self):
-        with open(CADDYFILE, encoding="utf-8") as f:
-            current = f.read()
-        existing = [a.lower() for a in site_addresses(current)]
+    # -- service form (add / edit)
+    def _service_form(self, title, initial, existing, pw_hash=None, editing=False):
+        iv = dict(host="", upstream="", https_upstream=False, skip_verify=False, gzip=True, headers=True,
+                  log=True, user="", password="")
+        iv.update(initial or {})
         fields = [
-            dict(key="host", label=_("Service domain"), kind="text", value="",
+            dict(key="host", label=_("Service domain"), kind="text", value=iv["host"],
                  hint=_("E.g. app.mydomain.com (its DNS must point to this server)")),
-            dict(key="upstream", label=_("Upstream (host:port)"), kind="text", value="",
+            dict(key="upstream", label=_("Upstream (host:port)"), kind="text", value=iv["upstream"],
                  hint=_("E.g. 192.168.1.50:8080 · or container-name:3000 if it is on Caddy's network")),
-            dict(key="https_upstream", label=_("Upstream uses HTTPS"), kind="bool", value=False),
-            dict(key="skip_verify", label=_("  …ignore its certificate"), kind="bool", value=False,
+            dict(key="https_upstream", label=_("Upstream uses HTTPS"), kind="bool", value=iv["https_upstream"]),
+            dict(key="skip_verify", label=_("  …ignore its certificate"), kind="bool", value=iv["skip_verify"],
                  hint=_("Only if the upstream uses a self-signed certificate (lowers security)")),
-            dict(key="gzip", label=_("Gzip compression"), kind="bool", value=True),
-            dict(key="headers", label=_("Security headers"), kind="bool", value=True),
-            dict(key="log", label=_("Access log (monitor)"), kind="bool", value=True,
+            dict(key="gzip", label=_("Gzip compression"), kind="bool", value=iv["gzip"]),
+            dict(key="headers", label=_("Security headers"), kind="bool", value=iv["headers"]),
+            dict(key="log", label=_("Access log (monitor)"), kind="bool", value=iv["log"],
                  hint=_("Needed to see this service in the traffic monitor")),
-            dict(key="user", label=_("User (basic auth)"), kind="text", value="",
+            dict(key="user", label=_("User (basic auth)"), kind="text", value=iv["user"],
                  hint=_("Optional: leave user and password empty for no login")),
             dict(key="password", label=_("Password"), kind="secret", value="",
-                 hint=_("Stored hashed (bcrypt) in the Caddyfile")),
+                 hint=_("Leave empty to keep the current password") if pw_hash else _("Stored hashed (bcrypt) in the Caddyfile")),
         ]
 
         def check(v):
@@ -1666,13 +1744,118 @@ class App:
                 return _("A block for that domain already exists in the Caddyfile")
             if not up or any(c.isspace() for c in up):
                 return _("Enter the upstream, e.g. 192.168.1.50:8080")
-            if bool(v["user"].strip()) != bool(v["password"]):
+            has_user, has_pw = bool(v["user"].strip()), bool(v["password"])
+            if has_user != has_pw and not (editing and has_user and pw_hash):
                 return _("Enter user and password, or leave both empty")
             if any(c.isspace() for c in v["user"].strip()):
                 return _("The user cannot contain spaces")
             return None
 
-        v = self.form(_("Add service to Caddy"), fields, check)
+        return self.form(title, fields, check)
+
+    def _commit_caddyfile(self, new, template, **kw):
+        """Validate `new`, back up and save it; offer a reload."""
+        self.busy(_("Validating changes..."))
+        ok, out = validate_text(new)
+        if not ok:
+            self.show("✘ " + _("The configuration is NOT valid"), out)
+            return False
+        bk = backup_caddyfile()
+        write_in_place(new)
+        self.show(_("Manage services"), "✔ " + template.format(path=os.path.relpath(bk, BASE), **kw))
+        self.draw()
+        state, __ = container_state()
+        if state == "running" and self.ask(_("Reload Caddy now?"), True):
+            self.act_reload()
+        return True
+
+    def act_manage(self):
+        with open(CADDYFILE, encoding="utf-8") as f:
+            text = f.read()
+        blocks = find_site_blocks(text)
+        if not blocks:
+            self.show(_("Manage services"), _("There are no site blocks in the Caddyfile yet. Use [a] to add one."))
+            return
+        lines = text.split("\n")
+        i = self.pick(_("Choose a service"), [block_label(lines[b["start"]:b["end"] + 1]) for b in blocks])
+        if i is None:
+            return
+        blk = blocks[i]
+        blines = lines[blk["start"]:blk["end"] + 1]
+        host = " ".join(blk["addr"])
+        simple = parse_simple_block(blines)
+        options = ([("form", _("Edit with the form"))] if simple else []) + [
+            ("editor", _("Edit in the editor")), ("remove", _("Remove")), ("cancel", _("Cancel"))]
+        j = self.pick(_("What do you want to do with {host}?").format(host=host), [label for __, label in options])
+        if j is None or options[j][0] == "cancel":
+            return
+        action = options[j][0]
+
+        if action == "remove":
+            self.show(_("Block that will be removed"), "\n".join(blines))
+            self.draw()
+            if not self.ask(_("Remove service {host}? The block will be deleted from the Caddyfile.").format(host=host)):
+                self.show(_("Manage services"), _("Cancelled. Nothing was changed."))
+                return
+            self._commit_caddyfile(remove_block(text, blk), _("Service {host} removed (previous copy: {path})."), host=host)
+            return
+
+        if action == "form":
+            values, pw_hash = simple
+            existing = [a.lower() for b in blocks if b is not blk for a in b["addr"]]
+            v = self._service_form(_("Edit service"), values, existing, pw_hash, editing=True)
+            if v is None:
+                self.show(_("Manage services"), _("Cancelled. Nothing was changed."))
+                return
+            user = v["user"].strip()
+            new_hash = None
+            if user:
+                self.busy(_("Generating configuration..."))
+                new_hash = hash_password(v["password"]) if v["password"] else pw_hash
+                if not new_hash:
+                    self.show(_("Manage services"), _("Could not hash the password (is Docker available?)."))
+                    return
+            block = build_site_block(v, new_hash, verb="edited").rstrip("\n").split("\n")
+            new = replace_block(text, blk, block, with_marker=True)
+            self.show(_("Block preview"), "\n".join(block))
+            self.draw()
+            if not self.ask(_("Save to the Caddyfile?"), True):
+                self.show(_("Manage services"), _("Cancelled. Nothing was changed."))
+                return
+            self._commit_caddyfile(new, _("Service {host} updated (previous copy: {path})."), host=v["host"].strip())
+            return
+
+        # edit just this block in the editor, validated in the context of the whole file
+        fd, tmp = tempfile.mkstemp(prefix="service.", suffix=".caddy")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(blines) + "\n")
+            while True:
+                self.external_editor(tmp)
+                with open(tmp, encoding="utf-8") as f:
+                    edited = f.read().rstrip("\n")
+                if not edited.strip() or edited.split("\n") == blines:
+                    self.show(_("Manage services"), _("No changes."))
+                    return
+                candidate = replace_block(text, blk, edited.split("\n"))
+                self.busy(_("Validating changes..."))
+                ok, out = validate_text(candidate)
+                if ok:
+                    break
+                self.show("✘ " + _("The configuration is NOT valid"), out)
+                self.draw()
+                if not self.ask(_("Edit again? (No = discard changes)"), True):
+                    self.show(_("Manage services"), _("Cancelled. Nothing was changed."))
+                    return
+            self._commit_caddyfile(candidate, _("Service {host} updated (previous copy: {path})."), host=host)
+        finally:
+            os.path.exists(tmp) and os.unlink(tmp)
+
+    def act_add(self):
+        with open(CADDYFILE, encoding="utf-8") as f:
+            current = f.read()
+        existing = [a.lower() for a in site_addresses(current)]
+        v = self._service_form(_("Add service to Caddy"), None, existing)
         if v is None:
             self.show(_("Add service"), _("Cancelled. Nothing was changed."))
             return
@@ -1883,7 +2066,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "d": self.act_diagnose, "h": self.act_certs, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "k": self.act_backup, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),

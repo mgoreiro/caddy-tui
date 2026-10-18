@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-17 22:14+0200\n"
+"POT-Creation-Date: 2026-10-18 08:11+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -41,6 +41,9 @@ msgstr "docker no disponible"
 
 msgid "Add service (wizard)"
 msgstr "Añadir servicio (asistente)"
+
+msgid "Manage services"
+msgstr "Gestionar servicios"
 
 msgid "Traffic monitor"
 msgstr "Monitor de tráfico"
@@ -141,6 +144,9 @@ msgstr "Esta acción necesita docker compose (el contenedor no se creó con él)
 #, python-brace-format
 msgid "Could not prepare validation: {err}"
 msgstr "No se pudo preparar la validación: {err}"
+
+msgid "(custom block)"
+msgstr "(bloque a medida)"
 
 #, python-brace-format
 msgid "Service '{service}' not found in {file}"
@@ -736,6 +742,9 @@ msgstr "Opcional: deja usuario y contraseña vacíos para no pedir login"
 msgid "Password"
 msgstr "Contraseña"
 
+msgid "Leave empty to keep the current password"
+msgstr "Déjala vacía para conservar la contraseña actual"
+
 msgid "Stored hashed (bcrypt) in the Caddyfile"
 msgstr "Se guarda cifrada (bcrypt) en el Caddyfile"
 
@@ -754,32 +763,75 @@ msgstr "Indica usuario y contraseña, o deja ambos vacíos"
 msgid "The user cannot contain spaces"
 msgstr "El usuario no puede contener espacios"
 
+msgid "There are no site blocks in the Caddyfile yet. Use [a] to add one."
+msgstr "Todavía no hay sitios en el Caddyfile. Usa [a] para añadir uno."
+
+msgid "Choose a service"
+msgstr "Elige un servicio"
+
+msgid "Edit with the form"
+msgstr "Editar con el formulario"
+
+msgid "Edit in the editor"
+msgstr "Editar en el editor"
+
+msgid "Remove"
+msgstr "Eliminar"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+#, python-brace-format
+msgid "What do you want to do with {host}?"
+msgstr "¿Qué quieres hacer con {host}?"
+
+msgid "Block that will be removed"
+msgstr "Bloque que se eliminará"
+
+#, python-brace-format
+msgid "Remove service {host}? The block will be deleted from the Caddyfile."
+msgstr "¿Eliminar el servicio {host}? El bloque se borrará del Caddyfile."
+
+msgid "Cancelled. Nothing was changed."
+msgstr "Cancelado. No se ha modificado nada."
+
+#, python-brace-format
+msgid "Service {host} removed (previous copy: {path})."
+msgstr "Servicio {host} eliminado (copia anterior: {path})."
+
+msgid "Edit service"
+msgstr "Editar servicio"
+
+msgid "Generating configuration..."
+msgstr "Generando configuración..."
+
+msgid "Could not hash the password (is Docker available?)."
+msgstr "No se pudo cifrar la contraseña (¿Docker disponible?)."
+
+msgid "Block preview"
+msgstr "Vista previa del bloque"
+
+msgid "Save to the Caddyfile?"
+msgstr "¿Guardar en el Caddyfile?"
+
+#, python-brace-format
+msgid "Service {host} updated (previous copy: {path})."
+msgstr "Servicio {host} actualizado (copia anterior: {path})."
+
 msgid "Add service to Caddy"
 msgstr "Añadir servicio a Caddy"
 
 msgid "Add service"
 msgstr "Añadir servicio"
 
-msgid "Cancelled. Nothing was changed."
-msgstr "Cancelado. No se ha modificado nada."
-
-msgid "Generating configuration..."
-msgstr "Generando configuración..."
-
 msgid "Add service: ERROR"
 msgstr "Añadir servicio: ERROR"
-
-msgid "Could not hash the password (is Docker available?)."
-msgstr "No se pudo cifrar la contraseña (¿Docker disponible?)."
 
 msgid "The generated configuration is NOT valid"
 msgstr "La configuración generada NO es válida"
 
 msgid "Block preview (will be appended to the end of the Caddyfile)"
 msgstr "Vista previa del bloque (se añadirá al final del Caddyfile)"
-
-msgid "Save to the Caddyfile?"
-msgstr "¿Guardar en el Caddyfile?"
 
 #, python-brace-format
 msgid ""
