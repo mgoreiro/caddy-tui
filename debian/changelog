@@ -30,6 +30,11 @@ caddy-tui (1.6.0) unstable; urgency=medium
     probe typical scanner paths, fail almost every request or fail many logins,
     and ban them for 24 h / 7 days / permanently; caddy-tui --auto-block does it
     unattended (also from --setup-alerts), lifting expired bans.
+  * The add-service wizard now offers site templates: reverse proxy (as
+    before), reverse proxy with path routing (/api to one app, /static to
+    another, the rest to a default), redirect (www to apex, permanent or
+    temporary, keeping path and query) and a maintenance page. The manage
+    screen recognises and edits all of them with the same forms.
 
  -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
 

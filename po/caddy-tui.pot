@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 17:40+0200\n"
+"POT-Creation-Date: 2026-10-18 18:22+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -222,6 +222,15 @@ msgstr ""
 
 #, python-brace-format
 msgid "Could not send the Telegram message: {error}"
+msgstr ""
+
+msgid "redirect"
+msgstr ""
+
+msgid "maintenance"
+msgstr ""
+
+msgid "routes"
 msgstr ""
 
 msgid "(custom block)"
@@ -1044,6 +1053,85 @@ msgstr ""
 msgid "The user cannot contain spaces"
 msgstr ""
 
+msgid "Domain to redirect from"
+msgstr ""
+
+msgid "E.g. www.mydomain.com (its DNS must point to this server)"
+msgstr ""
+
+msgid "Redirect to (URL)"
+msgstr ""
+
+msgid "E.g. https://mydomain.com"
+msgstr ""
+
+msgid "Keep the path and query"
+msgstr ""
+
+msgid "www.x.com/a?b=1 goes to https://x.com/a?b=1"
+msgstr ""
+
+msgid "Permanent redirect (301)"
+msgstr ""
+
+msgid "Off = temporary (302)"
+msgstr ""
+
+msgid "Enter a full URL starting with http:// or https://"
+msgstr ""
+
+msgid "We are doing some maintenance. Please come back soon."
+msgstr ""
+
+msgid "Message"
+msgstr ""
+
+msgid "What visitors see (one line)"
+msgstr ""
+
+msgid "HTTP status"
+msgstr ""
+
+msgid "503 tells search engines and monitors that it is temporary"
+msgstr ""
+
+msgid "Enter a message"
+msgstr ""
+
+msgid "The status must be a number between 100 and 599"
+msgstr ""
+
+msgid "Default upstream (host:port)"
+msgstr ""
+
+msgid "Receives everything that matches no path below"
+msgstr ""
+
+#, python-brace-format
+msgid "Path {n} (e.g. /api)"
+msgstr ""
+
+msgid "Requests under this path go to the upstream on the next line"
+msgstr ""
+
+msgid "  …upstream (host:port)"
+msgstr ""
+
+msgid "  …remove the path prefix"
+msgstr ""
+
+msgid "On: /api/users reaches the upstream as /users"
+msgstr ""
+
+msgid "A path must start with / (e.g. /api)"
+msgstr ""
+
+msgid "The same path appears twice"
+msgstr ""
+
+msgid "Add at least one path (otherwise use a plain reverse proxy)"
+msgstr ""
+
 msgid "There are no site blocks in the Caddyfile yet. Use [a] to add one."
 msgstr ""
 
@@ -1097,6 +1185,21 @@ msgstr ""
 
 #, python-brace-format
 msgid "Service {host} updated (previous copy: {path})."
+msgstr ""
+
+msgid "Reverse proxy to an application"
+msgstr ""
+
+msgid "Reverse proxy with paths (/api → another app)"
+msgstr ""
+
+msgid "Redirect to another address"
+msgstr ""
+
+msgid "Maintenance page (fixed message)"
+msgstr ""
+
+msgid "What do you want to add?"
 msgstr ""
 
 msgid "Add service to Caddy"

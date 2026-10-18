@@ -1709,6 +1709,163 @@ class ReviewAndSetup(unittest.TestCase):
         self.assertNotIn("--auto-block", c.render_cron("/usr/bin/caddy-tui", 15))
 
 
+class SiteTemplates(unittest.TestCase):
+    REDIRECT = dict(host="www.example.com", target="https://example.com", keep_path=True, permanent=True, log=True)
+    MAINT = dict(host="app.example.com", message='Back at "noon" \\ soon', status=503, log=True)
+    ROUTES = dict(host="app.example.com", upstream="10.0.0.6:80", gzip=True, log=True,
+                  rules=[("/api", "10.0.0.5:3000", True), ("/static", "10.0.0.7:8080", False)])
+
+    @staticmethod
+    def lines(block):
+        return block.rstrip("\n").split("\n")
+
+    def test_redirect(self):
+        block = c.build_redirect_block(self.REDIRECT)
+        self.assertIn("redir https://example.com{uri} permanent", block)
+        self.assertEqual(c.parse_redirect_block(self.lines(block)), self.REDIRECT)
+        temp = dict(self.REDIRECT, keep_path=False, permanent=False, log=False)
+        block = c.build_redirect_block(temp)
+        self.assertIn("redir https://example.com temporary", block)
+        self.assertNotIn("log", block.split("\n", 2)[2])
+        self.assertEqual(c.parse_redirect_block(self.lines(block)), temp)
+
+    def test_mantenimiento_con_comillas_y_barras(self):
+        block = c.build_maintenance_block(self.MAINT)
+        self.assertIn('respond "Back at \\"noon\\" \\\\ soon" 503', block)
+        self.assertEqual(c.parse_maintenance_block(self.lines(block)), self.MAINT)
+
+    def test_rutas(self):
+        block = c.build_routes_block(self.ROUTES)
+        self.assertIn("handle_path /api/* {", block)
+        self.assertIn("\thandle /static/* {", block)
+        self.assertIn("\thandle {\n\t\treverse_proxy 10.0.0.6:80", block)
+        self.assertEqual(c.parse_routes_block(self.lines(block)), self.ROUTES)
+
+    def test_route_pattern(self):
+        for raw in ("/api", "/api/", "/api/*", " /api "):
+            self.assertEqual(c.route_pattern(raw), "/api/*")
+        self.assertEqual(c.route_pattern("/"), "/*")
+
+    def test_parse_any_block_distingue_los_tipos(self):
+        cases = {"proxy": c.build_site_block(dict(host="x.example.com", upstream="10.0.0.1:80", https_upstream=False,
+                                                  skip_verify=False, gzip=True, headers=False, log=True, user="", password="")),
+                 "redirect": c.build_redirect_block(self.REDIRECT), "maintenance": c.build_maintenance_block(self.MAINT),
+                 "routes": c.build_routes_block(self.ROUTES)}
+        for kind, block in cases.items():
+            self.assertEqual(c.parse_any_block(self.lines(block))[0], kind, kind)
+            self.assertEqual(c.parse_any_block(self.lines(block))[0], kind)
+        self.assertIsNone(c.parse_any_block(["a.example.com {", '\trespond "x" 200', '\theader X-Y "1"', "}"]))
+
+    def test_bloques_a_mano_no_se_confunden(self):
+        # extra directive -> not a redirect / maintenance / routes
+        self.assertIsNone(c.parse_redirect_block(["x.example.com {", "\tredir https://a.b permanent", "\tencode gzip", "}"]))
+        self.assertIsNone(c.parse_maintenance_block(["x.example.com {", '\trespond "m" 503', "\tencode gzip", "}"]))
+        self.assertIsNone(c.parse_routes_block(["x.example.com {", "\thandle {", "\t\treverse_proxy a:1", "\t}", "}"]))   # no path rule
+
+    def test_el_import_de_la_blocklist_no_estorba(self):
+        for block, parser in ((c.build_redirect_block(self.REDIRECT), c.parse_redirect_block),
+                              (c.build_maintenance_block(self.MAINT), c.parse_maintenance_block),
+                              (c.build_routes_block(self.ROUTES), c.parse_routes_block)):
+            lines = self.lines(block)
+            lines.insert(2, "\timport caddy_tui_blocklist")
+            self.assertIsNotNone(parser(lines))
+
+    def test_etiquetas(self):
+        label = lambda b: c.block_label(self.lines(b))
+        self.assertIn("→  https://example.com  [redirect]", label(c.build_redirect_block(self.REDIRECT)))
+        self.assertIn("[maintenance]", label(c.build_maintenance_block(self.MAINT)))
+        routes = label(c.build_routes_block(self.ROUTES))
+        self.assertIn("[routes]", routes)
+        self.assertIn("10.0.0.5:3000", routes)
+
+    def test_build_block_for(self):
+        self.assertIn("redir", c.build_block_for("redirect", self.REDIRECT, None, "edited"))
+        self.assertIn("# Service edited", c.build_block_for("routes", self.ROUTES, None, "edited"))
+        self.assertIn("reverse_proxy 10.0.0.1:80", c.build_block_for("proxy", dict(
+            host="x.example.com", upstream="10.0.0.1:80", https_upstream=False, skip_verify=False, gzip=False,
+            headers=False, log=False, user="", password=""), None))
+
+
+class TemplateFlows(unittest.TestCase):
+    """act_add / act_manage with the form of each kind replaced."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.caddyfile = os.path.join(d, "Caddyfile")
+        with open(self.caddyfile, "w", encoding="utf-8") as f:
+            f.write(BLOCK_BASE)
+        for name, val in (("CADDYFILE", self.caddyfile), ("BASE", d), ("BACKUPS", os.path.join(d, "bk"))):
+            p = mock.patch.object(c, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, kw in (("validate_text", dict(return_value=(True, ""))), ("container_state", dict(return_value=("exited", "")))):
+            p = mock.patch.object(c, name, **kw)
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = c.App.__new__(c.App)
+        self.shown = []
+        self.app.show = lambda t, x: self.shown.append((t, x))
+        self.app.busy = lambda m: None
+        self.app.draw = lambda: None
+        self.app.ask = lambda q, d=False: True
+
+    def current(self):
+        with open(self.caddyfile, encoding="utf-8") as f:
+            return f.read()
+
+    def add(self, kind_index, values):
+        self.app.pick = lambda title, items: kind_index
+        self.app.site_form = lambda kind, title, initial, existing, pw_hash=None, editing=False: values
+        self.app.act_add()
+
+    def test_alta_de_redireccion(self):
+        self.add(2, SiteTemplates.REDIRECT)
+        new = self.current()
+        self.assertIn("redir https://example.com{uri} permanent", new)
+        self.assertIn("app.example.com {", new)                  # the rest is untouched
+        self.assertEqual(c.parse_any_block(new.split("\n")[new.split("\n").index("www.example.com {") :][:4])[0], "redirect")
+
+    def test_alta_de_rutas_y_mantenimiento(self):
+        self.add(1, SiteTemplates.ROUTES)
+        self.assertIn("handle_path /api/* {", self.current())
+        self.add(3, dict(SiteTemplates.MAINT, host="m.example.com"))
+        self.assertIn('respond "Back at', self.current())
+
+    def test_el_tipo_se_pregunta_y_se_puede_cancelar(self):
+        asked = []
+        self.app.pick = lambda title, items: (asked.append(items), None)[1]
+        self.app.act_add()
+        self.assertEqual(len(asked[0]), 4)
+        self.assertEqual(self.current(), BLOCK_BASE)
+
+    def test_alta_de_proxy_sigue_igual(self):
+        v = dict(host="p.example.com", upstream="10.0.0.9:80", https_upstream=False, skip_verify=False, gzip=True,
+                 headers=False, log=True, user="", password="")
+        self.add(0, v)
+        self.assertIn("reverse_proxy 10.0.0.9:80", self.current())
+
+    def test_editar_una_redireccion_con_el_formulario(self):
+        self.add(2, SiteTemplates.REDIRECT)
+        text = self.current()
+        blocks = c.find_site_blocks(text)
+        idx = [b["addr"][0] for b in blocks].index("www.example.com")
+        seq = iter([idx, 0])                                  # that site ; "Edit with the form"
+        self.app.pick = lambda t, i: next(seq)
+        seen = {}
+
+        def fake_form(kind, title, initial, existing, pw_hash=None, editing=False):
+            seen.update(kind=kind, initial=initial)
+            return dict(initial, target="https://other.example.org", permanent=False)
+        self.app.site_form = fake_form
+        self.app.act_manage()
+        self.assertEqual(seen["kind"], "redirect")
+        new = self.current()
+        self.assertIn("redir https://other.example.org{uri} temporary", new)
+        self.assertIn("# Service edited with caddy-tui", new)
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

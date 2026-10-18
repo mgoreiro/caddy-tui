@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 17:40+0200\n"
+"POT-Creation-Date: 2026-10-18 18:22+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -229,6 +229,15 @@ msgstr "Caddy ha bloqueado {n} dirección(es)."
 #, python-brace-format
 msgid "Could not send the Telegram message: {error}"
 msgstr "No se pudo enviar el mensaje de Telegram: {error}"
+
+msgid "redirect"
+msgstr "redirección"
+
+msgid "maintenance"
+msgstr "mantenimiento"
+
+msgid "routes"
+msgstr "rutas"
 
 msgid "(custom block)"
 msgstr "(bloque a medida)"
@@ -1121,6 +1130,85 @@ msgstr "Indica usuario y contraseña, o deja ambos vacíos"
 msgid "The user cannot contain spaces"
 msgstr "El usuario no puede contener espacios"
 
+msgid "Domain to redirect from"
+msgstr "Dominio desde el que redirigir"
+
+msgid "E.g. www.mydomain.com (its DNS must point to this server)"
+msgstr "Ej.: www.midominio.com (su DNS debe apuntar a este servidor)"
+
+msgid "Redirect to (URL)"
+msgstr "Redirigir a (URL)"
+
+msgid "E.g. https://mydomain.com"
+msgstr "Ej.: https://midominio.com"
+
+msgid "Keep the path and query"
+msgstr "Conservar la ruta y los parámetros"
+
+msgid "www.x.com/a?b=1 goes to https://x.com/a?b=1"
+msgstr "www.x.com/a?b=1 va a https://x.com/a?b=1"
+
+msgid "Permanent redirect (301)"
+msgstr "Redirección permanente (301)"
+
+msgid "Off = temporary (302)"
+msgstr "Desmarcado = temporal (302)"
+
+msgid "Enter a full URL starting with http:// or https://"
+msgstr "Indica una URL completa que empiece por http:// o https://"
+
+msgid "We are doing some maintenance. Please come back soon."
+msgstr "Estamos realizando tareas de mantenimiento. Vuelve en un rato."
+
+msgid "Message"
+msgstr "Mensaje"
+
+msgid "What visitors see (one line)"
+msgstr "Lo que verán los visitantes (una línea)"
+
+msgid "HTTP status"
+msgstr "Estado HTTP"
+
+msgid "503 tells search engines and monitors that it is temporary"
+msgstr "El 503 indica a buscadores y monitores que es temporal"
+
+msgid "Enter a message"
+msgstr "Escribe un mensaje"
+
+msgid "The status must be a number between 100 and 599"
+msgstr "El estado debe ser un número entre 100 y 599"
+
+msgid "Default upstream (host:port)"
+msgstr "Destino por defecto (host:puerto)"
+
+msgid "Receives everything that matches no path below"
+msgstr "Recibe todo lo que no coincide con ninguna ruta de abajo"
+
+#, python-brace-format
+msgid "Path {n} (e.g. /api)"
+msgstr "Ruta {n} (p. ej. /api)"
+
+msgid "Requests under this path go to the upstream on the next line"
+msgstr "Las peticiones bajo esta ruta van al destino de la línea siguiente"
+
+msgid "  …upstream (host:port)"
+msgstr "  …destino (host:puerto)"
+
+msgid "  …remove the path prefix"
+msgstr "  …quitar el prefijo de la ruta"
+
+msgid "On: /api/users reaches the upstream as /users"
+msgstr "Activado: /api/users llega al destino como /users"
+
+msgid "A path must start with / (e.g. /api)"
+msgstr "Una ruta debe empezar por / (p. ej. /api)"
+
+msgid "The same path appears twice"
+msgstr "La misma ruta aparece dos veces"
+
+msgid "Add at least one path (otherwise use a plain reverse proxy)"
+msgstr "Añade al menos una ruta (si no, usa un proxy normal)"
+
 msgid "There are no site blocks in the Caddyfile yet. Use [a] to add one."
 msgstr "Todavía no hay sitios en el Caddyfile. Usa [a] para añadir uno."
 
@@ -1175,6 +1263,21 @@ msgstr "¿Guardar en el Caddyfile?"
 #, python-brace-format
 msgid "Service {host} updated (previous copy: {path})."
 msgstr "Servicio {host} actualizado (copia anterior: {path})."
+
+msgid "Reverse proxy to an application"
+msgstr "Proxy inverso a una aplicación"
+
+msgid "Reverse proxy with paths (/api → another app)"
+msgstr "Proxy inverso con rutas (/api → otra aplicación)"
+
+msgid "Redirect to another address"
+msgstr "Redirigir a otra dirección"
+
+msgid "Maintenance page (fixed message)"
+msgstr "Página de mantenimiento (mensaje fijo)"
+
+msgid "What do you want to add?"
+msgstr "¿Qué quieres añadir?"
 
 msgid "Add service to Caddy"
 msgstr "Añadir servicio a Caddy"

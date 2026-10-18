@@ -841,6 +841,122 @@ def parse_simple_block(lines):
     return (v, pw_hash) if same else None
 
 
+# ------------------------------------------------------------ site templates ---
+def _marker(verb):
+    return f"# Service {verb} with caddy-tui ({datetime.now():%Y-%m-%d %H:%M})"
+
+
+def _body(lines):
+    """Meaningful lines of a block: stripped, without comments and without caddy-tui's blocklist import."""
+    return [l.strip() for l in lines if l.strip() and not l.strip().startswith("#") and l.strip() != f"import {BLOCK_NAME}"]
+
+
+def _same(built, lines):
+    norm = lambda ls: sorted(x.strip() for x in ls if x.strip() and not x.strip().startswith("#"))
+    return norm(built.split("\n")) == norm(_body(lines))
+
+
+def _head(body):
+    m = re.match(r"^(\S+)\s*\{$", body[0]) if body else None
+    return m.group(1) if m and body[-1] == "}" else None
+
+
+def build_redirect_block(v, pw_hash=None, verb="added"):
+    target = v["target"].strip() + ("{uri}" if v["keep_path"] else "")
+    lines = [_marker(verb), f"{v['host'].strip()} {{", f"\tredir {target} {'permanent' if v['permanent'] else 'temporary'}"]
+    if v["log"]:
+        lines.append("\tlog")
+    return "\n".join(lines + ["}"]) + "\n"
+
+
+def parse_redirect_block(lines):
+    body = _body(lines)
+    host = _head(body)
+    m = re.fullmatch(r"redir (\S+) (permanent|temporary)", body[1]) if host and len(body) >= 3 else None
+    if not m or body[2:-1] not in ([], ["log"]):
+        return None
+    target = m.group(1)
+    keep = target.endswith("{uri}")
+    v = {"host": host, "target": target[:-5] if keep else target, "keep_path": keep,
+         "permanent": m.group(2) == "permanent", "log": body[2:-1] == ["log"]}
+    return v if _same(build_redirect_block(v), lines) else None
+
+
+def build_maintenance_block(v, pw_hash=None, verb="added"):
+    msg = v["message"].replace("\\", "\\\\").replace('"', '\\"')
+    lines = [_marker(verb), f"{v['host'].strip()} {{", f'\trespond "{msg}" {int(v["status"])}']
+    if v["log"]:
+        lines.append("\tlog")
+    return "\n".join(lines + ["}"]) + "\n"
+
+
+def parse_maintenance_block(lines):
+    body = _body(lines)
+    host = _head(body)
+    m = re.fullmatch(r'respond "((?:[^"\\]|\\.)*)" (\d{3})', body[1]) if host and len(body) >= 3 else None
+    if not m or body[2:-1] not in ([], ["log"]):
+        return None
+    v = {"host": host, "message": re.sub(r"\\(.)", r"\1", m.group(1)), "status": int(m.group(2)), "log": body[2:-1] == ["log"]}
+    return v if _same(build_maintenance_block(v), lines) else None
+
+
+def route_pattern(path):
+    return path.strip().rstrip("*").rstrip("/") + "/*"
+
+
+def build_routes_block(v, pw_hash=None, verb="added"):
+    lines = [_marker(verb), f"{v['host'].strip()} {{"]
+    for path, upstream, strip in v["rules"]:
+        lines += [f"\t{'handle_path' if strip else 'handle'} {route_pattern(path)} {{", f"\t\treverse_proxy {upstream.strip()}", "\t}"]
+    lines += ["\thandle {", f"\t\treverse_proxy {v['upstream'].strip()}", "\t}"]
+    if v["gzip"]:
+        lines.append("\tencode gzip")
+    if v["log"]:
+        lines.append("\tlog")
+    return "\n".join(lines + ["}"]) + "\n"
+
+
+def parse_routes_block(lines):
+    body = _body(lines)
+    host = _head(body)
+    if not host:
+        return None
+    rules, default, i, end = [], None, 1, len(body) - 1
+    while i + 2 < end + 1 and body[i].startswith("handle") and body[i].endswith("{"):
+        m = re.fullmatch(r"(handle_path|handle)(?: (\S+))? \{", body[i])
+        up = re.fullmatch(r"reverse_proxy (\S+)", body[i + 1]) if m else None
+        if not m or not up or body[i + 2] != "}":
+            return None
+        if m.group(2):
+            rules.append((m.group(2)[:-2] if m.group(2).endswith("/*") else m.group(2), up.group(1), m.group(1) == "handle_path"))
+        else:
+            default = up.group(1)
+        i += 3
+    rest = body[i:end]
+    if not rules or not default or any(x not in ("encode gzip", "log") for x in rest):
+        return None
+    v = {"host": host, "upstream": default, "rules": rules, "gzip": "encode gzip" in rest, "log": "log" in rest}
+    return v if _same(build_routes_block(v), lines) else None
+
+
+def parse_any_block(lines):
+    """-> (kind, values, password_hash) for blocks a caddy-tui form can edit, else None."""
+    simple = parse_simple_block(lines)
+    if simple:
+        return "proxy", simple[0], simple[1]
+    for kind, parser in (("redirect", parse_redirect_block), ("maintenance", parse_maintenance_block), ("routes", parse_routes_block)):
+        v = parser(lines)
+        if v:
+            return kind, v, None
+    return None
+
+
+def build_block_for(kind, v, pw_hash=None, verb="added"):
+    builder = {"proxy": build_site_block, "redirect": build_redirect_block,
+               "maintenance": build_maintenance_block, "routes": build_routes_block}[kind]
+    return builder(v, pw_hash, verb)
+
+
 def remove_block(text, blk):
     lines = text.split("\n")
     a = blk["marker"] if blk["marker"] is not None else blk["start"]
@@ -861,10 +977,19 @@ def block_label(lines):
     """One-line description for the service list."""
     head = lines[0].strip().rstrip("{").strip()
     ups = ", ".join(f"{h}:{p}" for h, p, __ in parse_upstreams("\n".join(lines)))
-    text = head + (f"  →  {ups}" if ups else "")
+    parsed = parse_any_block(lines)
+    kind = parsed[0] if parsed else None
+    if kind == "redirect":
+        text = head + f"  →  {parsed[1]['target']}  [{_('redirect')}]"
+    elif kind == "maintenance":
+        text = head + f"  [{_('maintenance')}]"
+    else:
+        text = head + (f"  →  {ups}" if ups else "")
+        if kind == "routes":
+            text += f"  [{_('routes')}]"
     if any(l.strip().startswith(("basic_auth", "basicauth")) for l in lines):
         text += "  [auth]"
-    if parse_simple_block(lines) is None:
+    if parsed is None:
         text += "  " + _("(custom block)")
     return text
 
@@ -2708,6 +2833,122 @@ class App:
 
         return self.form(title, fields, check)
 
+    # -- site forms (add / edit) for each kind of site
+    def _host_check(self, v, existing):
+        host = v["host"].strip()
+        if not HOST_RE.match(host):
+            return _("Invalid domain")
+        if host.lower() in existing:
+            return _("A block for that domain already exists in the Caddyfile")
+        return None
+
+    def _redirect_form(self, title, initial, existing):
+        iv = dict(host="", target="", keep_path=True, permanent=True, log=True)
+        iv.update(initial or {})
+        fields = [
+            dict(key="host", label=_("Domain to redirect from"), kind="text", value=iv["host"],
+                 hint=_("E.g. www.mydomain.com (its DNS must point to this server)")),
+            dict(key="target", label=_("Redirect to (URL)"), kind="text", value=iv["target"],
+                 hint=_("E.g. https://mydomain.com")),
+            dict(key="keep_path", label=_("Keep the path and query"), kind="bool", value=iv["keep_path"],
+                 hint=_("www.x.com/a?b=1 goes to https://x.com/a?b=1")),
+            dict(key="permanent", label=_("Permanent redirect (301)"), kind="bool", value=iv["permanent"],
+                 hint=_("Off = temporary (302)")),
+            dict(key="log", label=_("Access log (monitor)"), kind="bool", value=iv["log"]),
+        ]
+
+        def check(v):
+            err = self._host_check(v, existing)
+            if err:
+                return err
+            if not re.fullmatch(r"https?://\S+", v["target"].strip()):
+                return _("Enter a full URL starting with http:// or https://")
+            return None
+        return self.form(title, fields, check)
+
+    def _maintenance_form(self, title, initial, existing):
+        iv = dict(host="", message=_("We are doing some maintenance. Please come back soon."), status="503", log=True)
+        iv.update({k: (str(v) if k == "status" else v) for k, v in (initial or {}).items()})
+        fields = [
+            dict(key="host", label=_("Service domain"), kind="text", value=iv["host"],
+                 hint=_("E.g. app.mydomain.com (its DNS must point to this server)")),
+            dict(key="message", label=_("Message"), kind="text", value=iv["message"],
+                 hint=_("What visitors see (one line)")),
+            dict(key="status", label=_("HTTP status"), kind="text", value=iv["status"],
+                 hint=_("503 tells search engines and monitors that it is temporary")),
+            dict(key="log", label=_("Access log (monitor)"), kind="bool", value=iv["log"]),
+        ]
+
+        def check(v):
+            err = self._host_check(v, existing)
+            if err:
+                return err
+            if not v["message"].strip():
+                return _("Enter a message")
+            if not (v["status"].strip().isdigit() and 100 <= int(v["status"]) <= 599):
+                return _("The status must be a number between 100 and 599")
+            return None
+        v = self.form(title, fields, check)
+        return dict(v, status=int(v["status"]), message=v["message"].strip()) if v else None
+
+    def _routes_form(self, title, initial, existing):
+        iv = dict(host="", upstream="", rules=[], gzip=True, log=True)
+        iv.update(initial or {})
+        rules = list(iv["rules"]) + [("", "", False)] * 3
+        fields = [
+            dict(key="host", label=_("Service domain"), kind="text", value=iv["host"],
+                 hint=_("E.g. app.mydomain.com (its DNS must point to this server)")),
+            dict(key="upstream", label=_("Default upstream (host:port)"), kind="text", value=iv["upstream"],
+                 hint=_("Receives everything that matches no path below")),
+        ]
+        for n in range(3):
+            path, up, strip = rules[n]
+            fields += [
+                dict(key=f"path{n}", label=_("Path {n} (e.g. /api)").format(n=n + 1), kind="text", value=path,
+                     hint=_("Requests under this path go to the upstream on the next line")),
+                dict(key=f"up{n}", label=_("  …upstream (host:port)"), kind="text", value=up),
+                dict(key=f"strip{n}", label=_("  …remove the path prefix"), kind="bool", value=strip,
+                     hint=_("On: /api/users reaches the upstream as /users")),
+            ]
+        fields += [dict(key="gzip", label=_("Gzip compression"), kind="bool", value=iv["gzip"]),
+                   dict(key="log", label=_("Access log (monitor)"), kind="bool", value=iv["log"])]
+
+        def check(v):
+            err = self._host_check(v, existing)
+            if err:
+                return err
+            if not v["upstream"].strip() or any(ch.isspace() for ch in v["upstream"].strip()):
+                return _("Enter the upstream, e.g. 192.168.1.50:8080")
+            seen, used = set(), 0
+            for n in range(3):
+                path, up = v[f"path{n}"].strip(), v[f"up{n}"].strip()
+                if not path and not up:
+                    continue
+                if not path.startswith("/") or any(ch.isspace() for ch in path):
+                    return _("A path must start with / (e.g. /api)")
+                if not up or any(ch.isspace() for ch in up):
+                    return _("Enter the upstream, e.g. 192.168.1.50:8080")
+                if route_pattern(path) in seen:
+                    return _("The same path appears twice")
+                seen.add(route_pattern(path))
+                used += 1
+            return None if used else _("Add at least one path (otherwise use a plain reverse proxy)")
+        v = self.form(title, fields, check)
+        if not v:
+            return None
+        rules = [(v[f"path{n}"].strip().rstrip("*").rstrip("/") or "/", v[f"up{n}"].strip(), v[f"strip{n}"])
+                 for n in range(3) if v[f"path{n}"].strip()]
+        return dict(host=v["host"], upstream=v["upstream"], rules=rules, gzip=v["gzip"], log=v["log"])
+
+    def site_form(self, kind, title, initial, existing, pw_hash=None, editing=False):
+        if kind == "redirect":
+            return self._redirect_form(title, initial, existing)
+        if kind == "maintenance":
+            return self._maintenance_form(title, initial, existing)
+        if kind == "routes":
+            return self._routes_form(title, initial, existing)
+        return self._service_form(title, initial, existing, pw_hash, editing)
+
     def _commit_caddyfile(self, new, template, title=None, **kw):
         """Validate `new`, back up and save it; offer a reload."""
         self.busy(_("Validating changes..."))
@@ -2739,8 +2980,8 @@ class App:
         blk = blocks[i]
         blines = lines[blk["start"]:blk["end"] + 1]
         host = " ".join(blk["addr"])
-        simple = parse_simple_block(blines)
-        options = ([("form", _("Edit with the form"))] if simple else []) + [
+        parsed = parse_any_block(blines)
+        options = ([("form", _("Edit with the form"))] if parsed else []) + [
             ("editor", _("Edit in the editor")), ("remove", _("Remove")), ("cancel", _("Cancel"))]
         j = self.pick(_("What do you want to do with {host}?").format(host=host), [label for __, label in options])
         if j is None or options[j][0] == "cancel":
@@ -2757,13 +2998,13 @@ class App:
             return
 
         if action == "form":
-            values, pw_hash = simple
+            kind, values, pw_hash = parsed
             existing = [a.lower() for b in blocks if b is not blk for a in b["addr"]]
-            v = self._service_form(_("Edit service"), values, existing, pw_hash, editing=True)
+            v = self.site_form(kind, _("Edit service"), values, existing, pw_hash, editing=True)
             if v is None:
                 self.show(_("Manage services"), _("Cancelled. Nothing was changed."))
                 return
-            user = v["user"].strip()
+            user = v["user"].strip() if kind == "proxy" else ""
             new_hash = None
             if user:
                 self.busy(_("Generating configuration..."))
@@ -2771,7 +3012,7 @@ class App:
                 if not new_hash:
                     self.show(_("Manage services"), _("Could not hash the password (is Docker available?)."))
                     return
-            block = build_site_block(v, new_hash, verb="edited").rstrip("\n").split("\n")
+            block = build_block_for(kind, v, new_hash, verb="edited").rstrip("\n").split("\n")
             new = replace_block(text, blk, block, with_marker=True)
             self.show(_("Block preview"), "\n".join(block))
             self.draw()
@@ -2811,16 +3052,22 @@ class App:
         with open(CADDYFILE, encoding="utf-8") as f:
             current = f.read()
         existing = [a.lower() for a in site_addresses(current)]
-        v = self._service_form(_("Add service to Caddy"), None, existing)
+        kinds = [("proxy", _("Reverse proxy to an application")), ("routes", _("Reverse proxy with paths (/api → another app)")),
+                 ("redirect", _("Redirect to another address")), ("maintenance", _("Maintenance page (fixed message)"))]
+        i = self.pick(_("What do you want to add?"), [label for __, label in kinds])
+        if i is None:
+            return
+        kind = kinds[i][0]
+        v = self.site_form(kind, _("Add service to Caddy"), None, existing)
         if v is None:
             self.show(_("Add service"), _("Cancelled. Nothing was changed."))
             return
         self.busy(_("Generating configuration..."))
-        pw = hash_password(v["password"]) if v["user"].strip() else None
-        if v["user"].strip() and not pw:
+        pw = hash_password(v["password"]) if kind == "proxy" and v["user"].strip() else None
+        if kind == "proxy" and v["user"].strip() and not pw:
             self.show(_("Add service: ERROR"), _("Could not hash the password (is Docker available?)."))
             return
-        block = build_site_block(v, pw)
+        block = build_block_for(kind, v, pw)
         new = sync_blocklist(current.rstrip("\n") + "\n\n" + block)
         ok, out = validate_text(new)
         if not ok:
