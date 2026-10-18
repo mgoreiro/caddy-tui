@@ -14,7 +14,7 @@ pot:
 	  -o po/$(PACKAGE).pot caddy-tui.py
 
 update-po: pot
-	for l in $(LANGS); do msgmerge -q -U --no-fuzzy-matching po/$$l.po po/$(PACKAGE).pot; done
+	for l in $(LANGS); do msgmerge -q -U --backup=none --no-fuzzy-matching po/$$l.po po/$(PACKAGE).pot; done
 
 # Compile catalogs next to the script (used when running from a checkout).
 mo:

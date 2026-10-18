@@ -59,6 +59,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 | Key | Action |
 |-----|--------|
 | `a` | **Add-service wizard**: form (domain, upstream, HTTPS upstream, gzip, security headers, access log, optional user/password). Generates the block, validates it, shows a preview and appends it |
+| `m` | **Manage services**: lists the sites in the Caddyfile and lets you **edit** (with the same form as the wizard when the block is one the wizard could have written, otherwise in your editor, only that block) or **remove** one. Everything is validated in the context of the whole file and backed up first |
 | `t` | **Live traffic monitor**: requests/s, 2xx–5xx codes, latency, graph, top domains and IPs, latest requests (`p` pause, `w` window 1/5/15 min). Needs `log` in the site |
 | `d` | **Diagnostics and repair** (see below) |
 | `h` | **HTTPS certificates**: names, issuer and expiry of every certificate Caddy has stored; warns when one is about to expire (Caddy should have renewed it), when a domain has none yet, or when Let's Encrypt/ACME is failing (showing the error). The diagnostics include the same checks |
