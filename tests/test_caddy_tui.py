@@ -1,5 +1,11 @@
 import argparse
 import ast
+import http.server
+import shutil
+import socket
+import ssl
+import subprocess
+import threading
 import contextlib
 import io
 import importlib.util
@@ -197,6 +203,12 @@ class Certificates(unittest.TestCase):
         self.assertEqual(c.parse_pem_certificates("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----"), [])
         self.assertEqual(c.parse_pem_certificates("nada"), [])
 
+    def test_nombres_internos_como_caddy(self):
+        for host in ("localhost", "app.localhost", "nas.local", "x.internal", "r.home.arpa", "single"):
+            self.assertTrue(c.is_internal_name(host), host)
+        for host in ("app.example.com", "nas.lan", "x.test"):          # these go to ACME (and fail)
+            self.assertFalse(c.is_internal_name(host), host)
+
     def test_cert_covers(self):
         self.assertTrue(c.cert_covers(["a.example.com"], "a.example.com"))
         self.assertTrue(c.cert_covers(["*.example.com"], "a.example.com"))
@@ -204,7 +216,7 @@ class Certificates(unittest.TestCase):
         self.assertFalse(c.cert_covers(["a.example.com"], "b.example.com"))
 
     def test_site_domains(self):
-        text = ("{$DOMAIN}:8443 {\n}\nhttp://plain.example.com {\n}\nlocalhost {\n}\nnas.lan {\n}\n"
+        text = ("{$DOMAIN}:8443 {\n}\nhttp://plain.example.com {\n}\nlocalhost {\n}\nnas.local {\n}\n"
                 "192.168.1.5 {\n}\n*.wild.example.com {\n}\napp.example.com:2283 {\n}\n")
         with mock.patch.object(c, "runtime_env", return_value={"DOMAIN": "Main.Example.com"}):
             self.assertEqual(c.site_domains(text), ["main.example.com", "app.example.com"])
@@ -811,6 +823,128 @@ class UndoFlow(unittest.TestCase):
         self.assertEqual(self.current(), "old\n")
         self.assertEqual(slurp(c.ENVFILE), "DOMAIN=old.example.com\n")
         self.assertTrue(any(n.startswith("full-") and n != "full-20260101-100000.tar.gz" for n in os.listdir(self.bk)))
+
+
+class ProbeHelpers(unittest.TestCase):
+    def test_site_endpoints(self):
+        text = ("{$DOMAIN}:8443 {\n}\nhttp://plain.example.com {\n}\napp.example.com {\n}\nnas.lan:2283 {\n}\n"
+                "192.168.1.5 {\n}\n*.wild.example.com {\n}\n:8080 {\n}\napp.example.com {\n}\n")
+        with mock.patch.object(c, "runtime_env", return_value={"DOMAIN": "Main.Example.com"}):
+            self.assertEqual(c.site_endpoints(text), [
+                ("https", "main.example.com", 8443), ("http", "plain.example.com", 80),
+                ("https", "app.example.com", 443), ("https", "nas.lan", 2283)])
+
+    def test_clasificacion(self):
+        ok = {"status": 200, "ms": 12, "error": None, "cert_error": False}
+        ep = ("https", "a.example.com", 443)
+        self.assertEqual(c.local_probe_row(ep, ok)[0:2], ("ok", "https://a.example.com"))
+        self.assertEqual(c.local_probe_row(("https", "a.example.com", 8443), ok)[1], "https://a.example.com:8443")
+        for status, level in ((200, "ok"), (302, "ok"), (401, "ok"), (404, "ok"), (502, "err"), (503, "err")):
+            self.assertEqual(c.local_probe_row(ep, dict(ok, status=status))[0], level, status)
+        self.assertEqual(c.local_probe_row(ep, dict(ok, status=None, error="timeout"))[0], "err")
+        row = c.local_probe_row(ep, dict(ok, status=None, error="certificate has expired", cert_error=True))
+        self.assertEqual(row[0], "err")
+        self.assertIn("expired", row[2][0])
+        internal = c.local_probe_row(("https", "nas.local", 443), dict(ok, status=None, error="self-signed", cert_error=True))
+        self.assertEqual(internal[0], "warn")               # internal CA: not trusted by this machine, not an outage
+
+    def test_probe_services_con_sondeos_simulados(self):
+        text = "a.example.com {\n}\nb.example.com:8443 {\n}\n"
+        results = {"a.example.com": {"status": 200, "ms": 5, "error": None, "cert_error": False},
+                   "b.example.com": {"status": 502, "ms": 7, "error": None, "cert_error": False}}
+        with mock.patch.object(c, "runtime_env", return_value={}), \
+             mock.patch.object(c, "probe_http", side_effect=lambda sch, host, port, to, **k: results[host]):
+            rows = c.probe_services(text)
+            self.assertEqual([r[0] for r in rows], ["ok", "err"])
+            self.assertEqual([r[1] for r in rows], ["https://a.example.com", "https://b.example.com:8443"])
+            self.assertEqual([r[1] for r in c.probe_services(text, skip_ports={8443})], ["https://a.example.com"])
+
+    def test_ca_interna_sigue_viendo_si_el_servicio_responde(self):
+        cert_err = {"status": None, "ms": 1, "error": "self-signed certificate", "cert_error": True}
+        def fake(scheme, host, port, to, **k):
+            if k.get("verify", True):
+                return cert_err
+            return {"status": 502 if host == "down.local" else 200, "ms": 3, "error": None, "cert_error": False}
+        with mock.patch.object(c, "runtime_env", return_value={}), mock.patch.object(c, "probe_http", side_effect=fake):
+            rows = c.probe_services("up.local {\n}\ndown.local {\n}\n")
+        self.assertEqual([r[0] for r in rows], ["warn", "err"])        # up: only the certificate warning; down: an outage
+        self.assertIn("not trusted", rows[0][2][-1])
+        self.assertIn("HTTP 200", rows[0][2][0])
+
+    def test_ruta_publica_fallida_es_aviso_no_error(self):
+        text = "a.example.com {\n}\n"
+        good = {"status": 200, "ms": 5, "error": None, "cert_error": False}
+        bad = {"status": None, "ms": 6000, "error": "timeout", "cert_error": False}
+        calls = iter([good, bad])
+        with mock.patch.object(c, "runtime_env", return_value={}), \
+             mock.patch.object(c, "resolve_host", return_value=["203.0.113.7"]), \
+             mock.patch.object(c, "probe_http", side_effect=lambda *a, **k: next(calls)):
+            level, __, details = c.probe_services(text, with_public=True)[0]
+        self.assertEqual(level, "warn")
+        self.assertTrue(any("hairpin" in d for d in details))
+
+    def test_sin_dns_es_aviso(self):
+        good = {"status": 200, "ms": 5, "error": None, "cert_error": False}
+        with mock.patch.object(c, "runtime_env", return_value={}), mock.patch.object(c, "resolve_host", return_value=[]), \
+             mock.patch.object(c, "probe_http", return_value=good):
+            self.assertEqual(c.probe_services("a.example.com {\n}\n", with_public=True)[0][0], "warn")
+
+
+class ProbeHttpServer(unittest.TestCase):
+    """probe_http against real local servers (plain HTTP, and HTTPS with a throw-away certificate)."""
+
+    @staticmethod
+    def serve(status, certfile=None, keyfile=None):
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(status)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        if certfile:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(certfile, keyfile)
+            srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv
+
+    def test_http_200_y_502(self):
+        for status in (200, 502):
+            srv = self.serve(status)
+            self.addCleanup(srv.server_close)
+            self.addCleanup(srv.shutdown)
+            r = c.probe_http("http", "site.example.com", srv.server_address[1], "127.0.0.1", timeout=3)
+            self.assertEqual((r["status"], r["error"]), (status, None))
+
+    def test_puerto_cerrado(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        r = c.probe_http("http", "x.example.com", port, "127.0.0.1", timeout=2)
+        self.assertIsNone(r["status"])
+        self.assertTrue(r["error"])
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl not available")
+    def test_https_verifica_el_certificado(self):
+        with tempfile.TemporaryDirectory() as d:
+            crt, key = os.path.join(d, "c.pem"), os.path.join(d, "k.pem")
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", crt,
+                            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost", "-days", "2"],
+                           check=True, capture_output=True)
+            srv = self.serve(200, crt, key)
+            self.addCleanup(srv.server_close)
+            self.addCleanup(srv.shutdown)
+            port = srv.server_address[1]
+            ok = c.probe_http("https", "localhost", port, "127.0.0.1", timeout=3, cafile=crt)
+            self.assertEqual((ok["status"], ok["cert_error"]), (200, False))
+            untrusted = c.probe_http("https", "localhost", port, "127.0.0.1", timeout=3)     # not in the system CAs
+            self.assertTrue(untrusted["cert_error"])
+            wrong_name = c.probe_http("https", "other.example.com", port, "127.0.0.1", timeout=3, cafile=crt)
+            self.assertTrue(wrong_name["cert_error"])
 
 
 class Translations(unittest.TestCase):

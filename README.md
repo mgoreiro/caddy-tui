@@ -60,6 +60,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 |-----|--------|
 | `a` | **Add-service wizard**: form (domain, upstream, HTTPS upstream, gzip, security headers, access log, optional user/password). Generates the block, validates it, shows a preview and appends it |
 | `m` | **Manage services**: lists the sites in the Caddyfile and lets you **edit** (with the same form as the wizard when the block is one the wizard could have written, otherwise in your editor, only that block) or **remove** one. Everything is validated in the context of the whole file and backed up first |
+| `p` | **Probe services**: requests every named site of the Caddyfile and reports the HTTP status, response time and certificate validity. Two checks per site: *local* (straight to this machine's Caddy with the site's name, certificate verified) and *public* (through DNS like a client; a failure here is only a warning because it can be hairpin NAT). The diagnostics (and so `--check` and the alerts) run the local check too, so a `502` or an expired certificate raises an alert |
 | `t` | **Live traffic monitor**: requests/s, 2xx–5xx codes, latency, graph, top domains and IPs, latest requests (`p` pause, `w` window 1/5/15 min). Needs `log` in the site |
 | `d` | **Diagnostics and repair** (see below) |
 | `h` | **HTTPS certificates**: names, issuer and expiry of every certificate Caddy has stored; warns when one is about to expire (Caddy should have renewed it), when a domain has none yet, or when Let's Encrypt/ACME is failing (showing the error). The diagnostics include the same checks |
@@ -85,6 +86,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 - **Unreachable upstreams**: another Docker network (it finds which one), `host.docker.internal`
   without `extra_hosts`, connection refused, timeout.
 - Recent errors in the logs, grouped.
+- **Every site answers** (checked from this machine, over HTTPS with the certificate verified): `5xx`, timeouts and certificate problems are errors. Sites on Caddy's internal CA (`localhost`, `*.local`…) are reported as a warning about the certificate but their status is still checked.
 
 Each problem comes with its fix and the TUI offers to apply it: it patches the `docker-compose`
 file (ports, `extra_hosts`, external networks; idempotent, checked with `docker compose config`,

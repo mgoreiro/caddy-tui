@@ -8,6 +8,10 @@ caddy-tui (1.6.0) unstable; urgency=medium
     offers to reload Caddy, and docker-compose backups no longer appear in
     the list.
   * The menu uses three columns on wide terminals.
+  * New [p]: probe services. Requests every named site and reports HTTP
+    status, response time and certificate validity, locally and through the
+    public route. The diagnostics (so --check and the alerts) also check that
+    every site answers, so a 5xx or an expired certificate raises an alert.
 
  -- Miguel González Oreiro <mgoreiro@gmail.com>  Sun, 18 Oct 2026 12:00:00 +0200
 
