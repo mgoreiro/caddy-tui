@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 08:11+0200\n"
+"POT-Creation-Date: 2026-10-18 14:57+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -86,6 +86,9 @@ msgstr ""
 msgid "Create backup (Caddyfile+.env)"
 msgstr ""
 
+msgid "Undo last change"
+msgstr ""
+
 msgid "Restore backup"
 msgstr ""
 
@@ -139,6 +142,21 @@ msgstr ""
 
 #, python-brace-format
 msgid "Could not prepare validation: {err}"
+msgstr ""
+
+msgid "just now"
+msgstr ""
+
+#, python-brace-format
+msgid "{n} min ago"
+msgstr ""
+
+#, python-brace-format
+msgid "{n} h ago"
+msgstr ""
+
+#, python-brace-format
+msgid "{n} d ago"
 msgstr ""
 
 msgid "(custom block)"
@@ -605,23 +623,20 @@ msgid ""
 "Contains: {files}"
 msgstr ""
 
-msgid "Restore"
-msgstr ""
-
-msgid ""
-"No backups yet. Create one with [k] (copies are also made when editing)."
-msgstr ""
-
-msgid "(Caddyfile only)"
-msgstr ""
-
-msgid "Choose the backup to restore"
-msgstr ""
-
 msgid "Validating backup..."
 msgstr ""
 
 msgid "The backup's Caddyfile is not valid; not restoring"
+msgstr ""
+
+#, python-brace-format
+msgid "Changes if you restore {name}"
+msgstr ""
+
+msgid "current"
+msgstr ""
+
+msgid "(identical to the current Caddyfile)"
 msgstr ""
 
 msgid "Caddyfile and .env"
@@ -631,14 +646,30 @@ msgstr ""
 msgid "Restore {what}? The current state will be backed up first."
 msgstr ""
 
-msgid "Use [l] to reload the Caddyfile or [s] to apply .env changes."
-msgstr ""
-
-msgid "Use [l] to reload the Caddyfile."
-msgstr ""
-
 #, python-brace-format
 msgid "Restored {what} from {file}."
+msgstr ""
+
+msgid "Use [s] to apply the .env changes."
+msgstr ""
+
+msgid "Restore"
+msgstr ""
+
+msgid ""
+"No backups yet. Create one with [k] (copies are also made when editing)."
+msgstr ""
+
+msgid "identical to current"
+msgstr ""
+
+msgid "Choose the backup to restore"
+msgstr ""
+
+msgid "Undo"
+msgstr ""
+
+msgid "There is no earlier version different from the current Caddyfile."
 msgstr ""
 
 msgid "yes"

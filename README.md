@@ -69,7 +69,8 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 | `g` | View logs |
 | `f` | Format the Caddyfile |
 | `c` | View the Caddyfile |
-| `k` / `b` | Create / restore a backup (`Caddyfile` + `.env` in `.caddy-backups/`) |
+| `u` | **Undo the last change**: shows the diff against the latest earlier version and restores it (backing up the current one first, so pressing `u` again redoes it) |
+| `k` / `b` | Create / restore a backup (`Caddyfile` + `.env` in `.caddy-backups/`); the list shows how old each one is and how many lines would change, and you see the diff before confirming |
 | `n` | Edit `.env` |
 | `L` | Change language (English / Español) |
 | `q` | Quit |

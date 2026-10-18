@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 08:11+0200\n"
+"POT-Creation-Date: 2026-10-18 14:57+0200\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -84,6 +84,9 @@ msgstr "Ver Caddyfile"
 msgid "Create backup (Caddyfile+.env)"
 msgstr "Crear backup (Caddyfile+.env)"
 
+msgid "Undo last change"
+msgstr "Deshacer último cambio"
+
 msgid "Restore backup"
 msgstr "Restaurar backup"
 
@@ -144,6 +147,21 @@ msgstr "Esta acción necesita docker compose (el contenedor no se creó con él)
 #, python-brace-format
 msgid "Could not prepare validation: {err}"
 msgstr "No se pudo preparar la validación: {err}"
+
+msgid "just now"
+msgstr "ahora mismo"
+
+#, python-brace-format
+msgid "{n} min ago"
+msgstr "hace {n} min"
+
+#, python-brace-format
+msgid "{n} h ago"
+msgstr "hace {n} h"
+
+#, python-brace-format
+msgid "{n} d ago"
+msgstr "hace {n} d"
 
 msgid "(custom block)"
 msgstr "(bloque a medida)"
@@ -644,25 +662,21 @@ msgstr ""
 "Backup creado: {path}\n"
 "Contiene: {files}"
 
-msgid "Restore"
-msgstr "Restaurar"
-
-msgid ""
-"No backups yet. Create one with [k] (copies are also made when editing)."
-msgstr ""
-"No hay backups todavía. Crea uno con [k] (también se crean copias al editar)."
-
-msgid "(Caddyfile only)"
-msgstr "(solo Caddyfile)"
-
-msgid "Choose the backup to restore"
-msgstr "Elige el backup a restaurar"
-
 msgid "Validating backup..."
 msgstr "Validando backup..."
 
 msgid "The backup's Caddyfile is not valid; not restoring"
 msgstr "El Caddyfile del backup no es válido; no se restaura"
+
+#, python-brace-format
+msgid "Changes if you restore {name}"
+msgstr "Cambios si restauras {name}"
+
+msgid "current"
+msgstr "actual"
+
+msgid "(identical to the current Caddyfile)"
+msgstr "(igual que el Caddyfile actual)"
 
 msgid "Caddyfile and .env"
 msgstr "Caddyfile y .env"
@@ -671,15 +685,32 @@ msgstr "Caddyfile y .env"
 msgid "Restore {what}? The current state will be backed up first."
 msgstr "¿Restaurar {what}? Se hará backup del estado actual antes."
 
-msgid "Use [l] to reload the Caddyfile or [s] to apply .env changes."
-msgstr "Usa [l] para recargar el Caddyfile o [s] para aplicar cambios de .env."
-
-msgid "Use [l] to reload the Caddyfile."
-msgstr "Usa [l] para recargar el Caddyfile."
-
 #, python-brace-format
 msgid "Restored {what} from {file}."
 msgstr "Restaurado {what} desde {file}."
+
+msgid "Use [s] to apply the .env changes."
+msgstr "Usa [s] para aplicar los cambios del .env."
+
+msgid "Restore"
+msgstr "Restaurar"
+
+msgid ""
+"No backups yet. Create one with [k] (copies are also made when editing)."
+msgstr ""
+"No hay backups todavía. Crea uno con [k] (también se crean copias al editar)."
+
+msgid "identical to current"
+msgstr "igual que el actual"
+
+msgid "Choose the backup to restore"
+msgstr "Elige el backup a restaurar"
+
+msgid "Undo"
+msgstr "Deshacer"
+
+msgid "There is no earlier version different from the current Caddyfile."
+msgstr "No hay ninguna versión anterior distinta del Caddyfile actual."
 
 msgid "yes"
 msgstr "sí"

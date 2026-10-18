@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.5.0" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.6.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -110,6 +110,9 @@ Format the Caddyfile.
 .TP
 .B c
 View the Caddyfile.
+.TP
+.B u
+Undo the last change: show the diff against the latest earlier version and restore it (pressing it again redoes).
 .TP
 .B k " / " b
 Create / restore a backup (Caddyfile and .env).

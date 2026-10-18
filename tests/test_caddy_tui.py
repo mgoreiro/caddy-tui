@@ -680,6 +680,139 @@ class ManageFlow(unittest.TestCase):
         self.assertEqual(len(offered[1]), 3)              # editor, remove, cancel
 
 
+class HistoryHelpers(unittest.TestCase):
+    def test_diff_y_estadisticas(self):
+        old, new = "a\nb\nc\n", "a\nB\nc\nd\n"
+        self.assertEqual(c.diff_stats(old, new), (2, 1))
+        lines = c.unified_diff(old, new, "old", "new")
+        self.assertEqual(lines[:2], ["--- old", "+++ new"])
+        self.assertIn("-b", lines)
+        self.assertIn("+B", lines)
+        self.assertEqual(c.unified_diff(old, old, "x", "y"), [])
+
+    def test_ago(self):
+        for secs, expected in ((5, "just now"), (120, "2 min ago"), (7300, "2 h ago"), (200000, "2 d ago")):
+            self.assertEqual(c.ago(1000, now=1000 + secs), expected)
+
+    def test_read_backups_ordena_y_solo_los_del_caddyfile(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(c, "BACKUPS", d):
+            for name in ("Caddyfile.20260101-100000", "Caddyfile.20260102-100000", "full-20260101-110000.tar.gz",
+                         "docker-compose.https.yml.20260101-100000", "notes.txt"):
+                open(os.path.join(d, name), "w").close()
+            names = [e["name"] for e in c.read_backups()]
+            self.assertEqual(names, ["full-20260101-110000.tar.gz", "Caddyfile.20260102-100000", "Caddyfile.20260101-100000"])
+        with mock.patch.object(c, "BACKUPS", "/no/such/dir"):
+            self.assertEqual(c.read_backups(), [])
+
+    def test_backup_text_de_los_dos_tipos(self):
+        import tarfile
+        with tempfile.TemporaryDirectory() as d:
+            plain = os.path.join(d, "Caddyfile.1")
+            with open(plain, "w") as f:
+                f.write("plain")
+            full = os.path.join(d, "full-1.tar.gz")
+            with tarfile.open(full, "w:gz") as tar:
+                for n, data in (("Caddyfile", b"cf"), (".env", b"X=1")):
+                    src = os.path.join(d, "src-" + n)
+                    with open(src, "wb") as f:
+                        f.write(data)
+                    tar.add(src, arcname=n)
+            self.assertEqual(c.backup_text({"kind": "caddyfile", "path": plain}), ("plain", None))
+            self.assertEqual(c.backup_text({"kind": "full", "path": full}), ("cf", "X=1"))
+
+
+class UndoFlow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.caddyfile, self.bk = os.path.join(d, "Caddyfile"), os.path.join(d, "bk")
+        os.makedirs(self.bk)
+        for name, val in (("CADDYFILE", self.caddyfile), ("BASE", d), ("BACKUPS", self.bk),
+                          ("ENVFILE", os.path.join(d, ".env"))):
+            p = mock.patch.object(c, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, kw in (("validate_text", dict(return_value=(True, ""))),
+                         ("container_state", dict(return_value=("exited", "")))):
+            p = mock.patch.object(c, name, **kw)
+            p.start()
+            self.addCleanup(p.stop)
+        self.write(self.caddyfile, "v3\n")
+        self.app = c.App.__new__(c.App)
+        self.shown, self.asked = [], []
+        self.app.show = lambda t, x: (self.shown.append((t, x)), setattr(self.app, "diff", False))
+        self.app.show_diff = lambda t, lines: (self.shown.append((t, "\n".join(lines))), setattr(self.app, "diff", True))
+        self.app.busy = lambda m: None
+        self.app.draw = lambda: None
+        self.answer = True
+        self.app.ask = lambda q, d=False: (self.asked.append(q), self.answer)[1]
+
+    @staticmethod
+    def write(path, text, mtime=None):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        if mtime:
+            os.utime(path, (mtime, mtime))
+
+    def current(self):
+        with open(self.caddyfile, encoding="utf-8") as f:
+            return f.read()
+
+    def test_deshacer_vuelve_a_la_version_anterior_distinta(self):
+        self.write(os.path.join(self.bk, "Caddyfile.20260101-100000"), "v1\n", 1000)
+        self.write(os.path.join(self.bk, "Caddyfile.20260102-100000"), "v2\n", 2000)
+        self.write(os.path.join(self.bk, "Caddyfile.20260103-100000"), "v3\n", 3000)    # igual a la actual: se salta
+        self.app.act_undo()
+        self.assertEqual(self.current(), "v2\n")
+        self.assertIn("-v3", self.shown[0][1])              # el diff se mostró antes de preguntar
+        self.assertIn("+v2", self.shown[0][1])
+
+    def test_deshacer_dos_veces_rehace(self):
+        self.write(os.path.join(self.bk, "Caddyfile.20260101-100000"), "v2\n", 1000)
+        self.app.act_undo()
+        self.assertEqual(self.current(), "v2\n")
+        self.app.act_undo()                                 # la copia del estado anterior permite rehacer
+        self.assertEqual(self.current(), "v3\n")
+
+    def test_si_dices_que_no_no_cambia_nada(self):
+        self.write(os.path.join(self.bk, "Caddyfile.20260101-100000"), "v2\n", 1000)
+        self.answer = False
+        self.app.act_undo()
+        self.assertEqual(self.current(), "v3\n")
+        self.assertEqual(os.listdir(self.bk), ["Caddyfile.20260101-100000"])
+
+    def test_sin_versiones_distintas(self):
+        self.write(os.path.join(self.bk, "Caddyfile.20260101-100000"), "v3\n", 1000)
+        self.app.act_undo()
+        self.assertIn("no earlier version", self.shown[-1][1])
+        self.assertEqual(self.current(), "v3\n")
+
+    def test_version_invalida_no_se_restaura(self):
+        self.write(os.path.join(self.bk, "Caddyfile.20260101-100000"), "bad\n", 1000)
+        with mock.patch.object(c, "validate_text", return_value=(False, "syntax error")):
+            self.app.act_undo()
+        self.assertEqual(self.current(), "v3\n")
+        self.assertIn("syntax error", self.shown[-1][1])
+
+    def test_restaurar_backup_completo_tambien_restaura_el_env(self):
+        import tarfile
+        full = os.path.join(self.bk, "full-20260101-100000.tar.gz")
+        with tarfile.open(full, "w:gz") as tar:
+            for n, data in (("Caddyfile", b"old\n"), (".env", b"DOMAIN=old.example.com\n")):
+                src = os.path.join(self.tmp.name, "src-" + n)
+                with open(src, "wb") as f:
+                    f.write(data)
+                tar.add(src, arcname=n)
+        self.write(c.ENVFILE, "DOMAIN=new.example.com\n")
+        seq = iter([0])
+        self.app.pick = lambda t, items: next(seq)
+        self.app.act_restore()
+        self.assertEqual(self.current(), "old\n")
+        self.assertEqual(slurp(c.ENVFILE), "DOMAIN=old.example.com\n")
+        self.assertTrue(any(n.startswith("full-") and n != "full-20260101-100000.tar.gz" for n in os.listdir(self.bk)))
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
