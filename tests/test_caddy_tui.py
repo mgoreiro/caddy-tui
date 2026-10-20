@@ -2454,6 +2454,85 @@ class Statistics(unittest.TestCase):
         self.assertIn("Requests: 5", shown[-1][1])
 
 
+class ValidateWithoutNewContainers(unittest.TestCase):
+    """validate_text must not create containers while Caddy runs (periodic checks would flood docker events)."""
+    TEXT = "a.example.com {\n}\n"
+
+    def setUp(self):
+        self.calls = []
+        self.snap = c.snapshot_config()
+        self.addCleanup(c.restore_config, self.snap)
+        c.CONTAINER = "caddy"
+
+    def validate(self, text=TEXT, state="running", cenv=None, live=None, exec_result=(0, ""), run_result=(0, "Valid configuration")):
+        """`live` = what the container is serving (None: different from `text`)."""
+        def fake_run(cmd, **k):
+            self.calls.append((cmd, k.get("stdin")))
+            if cmd[:2] == ["docker", "exec"] and "cat" in cmd and c.CONF_IN_CONTAINER in cmd:
+                return 0, (live if live is not None else "something else\n")
+            return exec_result if cmd[:2] == ["docker", "exec"] else run_result
+        with mock.patch.object(c, "container_state", return_value=(state, "")), \
+             mock.patch.object(c, "container_env", return_value=cenv or {}), \
+             mock.patch.object(c, "run", side_effect=fake_run), \
+             mock.patch.object(c, "runtime_env", return_value={}), \
+             mock.patch.object(c, "CADDYDIR", tempfile.gettempdir()):
+            return c.validate_text(text)
+
+    def subcommands(self):
+        return [cmd[1] for cmd, __ in self.calls if cmd[0] == "docker"]
+
+    def validated_with(self):
+        return [cmd for cmd, __ in self.calls if "validate" in " ".join(cmd) or cmd[:2] == ["docker", "run"]]
+
+    def test_lo_que_sirve_el_contenedor_se_valida_el_propio_fichero(self):
+        ok, __ = self.validate(live=self.TEXT, exec_result=(0, "Valid configuration"))
+        self.assertTrue(ok)
+        self.assertEqual(set(self.subcommands()), {"exec"})                    # not a single `docker run`
+        cmd = self.validated_with()[0]
+        self.assertEqual(cmd[-4:], ["--config", c.CONF_IN_CONTAINER, "--adapter", "caddyfile"])   # the very file: imports as for the real server
+
+    def test_un_candidato_viaja_por_stdin_dentro_del_contenedor(self):
+        ok, __ = self.validate(live="old\n", exec_result=(0, "Valid configuration"))
+        self.assertTrue(ok)
+        self.assertEqual(set(self.subcommands()), {"exec"})
+        self.assertEqual([stdin for cmd, stdin in self.calls if stdin], [self.TEXT])
+
+    def test_el_resultado_negativo_llega_tal_cual(self):
+        ok, out = self.validate(live=self.TEXT, exec_result=(1, "adapting config using caddyfile: syntax error"))
+        self.assertFalse(ok)
+        self.assertIn("syntax error", out)
+        self.assertEqual(set(self.subcommands()), {"exec"})
+
+    def test_parado_usa_el_contenedor_desechable(self):
+        self.validate(state="exited")
+        self.assertEqual(self.subcommands(), ["run"])
+
+    def test_candidato_con_import_de_fichero_relativo_cae_al_contenedor_desechable(self):
+        ok, __ = self.validate(live="old\n", exec_result=(1, "File to import not found: seguridad"))
+        self.assertTrue(ok)                                                  # the answer is the one from the fallback
+        self.assertIn("run", self.subcommands())
+
+    def test_imagen_sin_shell_cae_al_contenedor_desechable(self):
+        for rc in (125, 126, 127):
+            self.calls.clear()
+            self.validate(live="old\n", exec_result=(rc, "sh: not found"))
+            self.assertIn("run", self.subcommands(), rc)
+        self.calls.clear()
+        self.validate(live="old\n", exec_result=(1, 'OCI runtime exec failed: exec: "sh": executable file not found in $PATH'))
+        self.assertIn("run", self.subcommands())
+
+    def test_variable_que_el_contenedor_no_tiene_va_directa_al_desechable(self):
+        text = "{$NEWVAR} {\n}\n"
+        self.validate(text=text, cenv={"DOMAIN": "x"})
+        self.assertEqual(self.subcommands(), ["run"])
+        self.calls.clear()
+        self.validate(text=text, cenv={"NEWVAR": "x.example.com"})           # the container has it: exec
+        self.assertNotIn("run", self.subcommands())
+        self.calls.clear()
+        self.validate(text="{$OPTIONAL:fallback} {\n}\n")                   # has a default: exec
+        self.assertNotIn("run", self.subcommands())
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

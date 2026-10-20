@@ -1,3 +1,16 @@
+caddy-tui (1.9.1) unstable; urgency=medium
+
+  * Fix: every periodic check (and every validation) created and destroyed a
+    throw-away container (docker run --rm caddy validate), which made Docker
+    emit create/attach/start/die/destroy events that tools such as
+    docker-controller-bot reported. With Caddy running, the configuration is
+    now validated inside it (docker exec): the file it serves is validated as
+    is, a candidate goes through stdin. A throw-away container is only used
+    when Caddy is not running, when the text uses variables the container does
+    not have, or when a candidate imports files by relative path.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Tue, 20 Oct 2026 09:00:00 +0200
+
 caddy-tui (1.9.0) unstable; urgency=medium
 
   * Traffic statistics: [w] and --stats [24h|7d|30d|90d] show requests, traffic,

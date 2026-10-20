@@ -57,7 +57,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.9.0"
+__version__ = "1.9.1"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -455,8 +455,8 @@ def uptime(started):
     return (f"{d}d " if d else "") + f"{h}h {m}m"
 
 
-def validate_text(text):
-    """Validate Caddyfile text without touching the running container.
+def _validate_with_throwaway_container(text):
+    """Validate Caddyfile text in a throw-away container (docker run --rm).
 
     The candidate is written as a file next to the Caddyfile and that folder is
     mounted at /etc/caddy, so relative "import" statements work (they do not
@@ -477,6 +477,40 @@ def validate_text(text):
         if os.path.exists(cand):
             os.unlink(cand)
     return rc == 0, pretty_logs(out)
+
+
+def _validate_in_running_container(text):
+    """Validate inside the running Caddy container with `docker exec` (no container is created or destroyed).
+    -> (ok, output), or (None, "") when this way cannot give an answer (no shell in the image, relative file imports of a candidate...).
+
+    If `text` is exactly the file the container is serving (the usual case of the periodic checks) the container validates that very
+    file, so imports and variables behave exactly as they do for the real server."""
+    rc, live = run(["docker", "exec", CONTAINER, "cat", CONF_IN_CONTAINER], timeout=15)
+    if rc == 0 and live.strip() == text.strip():
+        rc, out = run(["docker", "exec", CONTAINER, "caddy", "validate", "--config", CONF_IN_CONTAINER, "--adapter", "caddyfile"], timeout=60)
+        return rc == 0, pretty_logs(out)
+    script = ('f=$(mktemp /tmp/caddy-tui.XXXXXX) || exit 125; cat > "$f"; '
+              'caddy validate --config "$f" --adapter caddyfile; rc=$?; rm -f "$f"; exit $rc')
+    rc, out = run(["docker", "exec", "-i", CONTAINER, "sh", "-c", script], stdin=text, timeout=60)
+    if rc in (125, 126, 127) or "executable file not found" in out or "File to import not found" in out:
+        return None, ""
+    return rc == 0, pretty_logs(out)
+
+
+def validate_text(text):
+    """Validate Caddyfile text.
+
+    With the container running this is done *inside it* (`docker exec`): no container is created, so the periodic
+    checks do not make Docker emit create/start/die/destroy events (which tools such as docker-controller-bot report).
+    A throw-away container is only used when Caddy is not running, when the text uses variables the container does not
+    have (they come from the .env), or when it imports files by relative path."""
+    if container_state()[0] == "running":
+        cenv = container_env()
+        if all(name in cenv or has_default for name, has_default in referenced_vars(text)):
+            ok, out = _validate_in_running_container(text)
+            if ok is not None:
+                return ok, out
+    return _validate_with_throwaway_container(text)
 
 
 def pretty_logs(raw):
