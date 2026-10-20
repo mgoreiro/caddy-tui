@@ -2533,6 +2533,32 @@ class ValidateWithoutNewContainers(unittest.TestCase):
         self.assertNotIn("run", self.subcommands())
 
 
+class DockerDesktopPaths(unittest.TestCase):
+    def test_host_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            real = os.path.join(d, "Caddyfile")
+            open(real, "w").close()
+            self.assertEqual(c.host_path("/host_mnt" + real), real)                    # Docker Desktop for Mac
+            self.assertEqual(c.host_path("/run/desktop/mnt/host" + real), real)        # Docker Desktop / WSL
+            self.assertEqual(c.host_path(real), real)                                  # a normal Linux path is untouched
+            self.assertEqual(c.host_path("/host_mnt/no/such/file"), "/host_mnt/no/such/file")   # nothing to map to: unchanged
+            self.assertEqual(c.host_path(""), "")
+            self.assertEqual(c.host_path("-"), "-")
+
+    def test_configure_usa_la_ruta_de_la_maquina(self):
+        snap = c.snapshot_config()
+        self.addCleanup(c.restore_config, snap)
+        with tempfile.TemporaryDirectory() as d:
+            cf = os.path.join(d, "Caddyfile")
+            open(cf, "w").close()
+            info = {"Config": {"Image": "caddy:2", "Labels": {}}, "Mounts": [
+                {"Type": "bind", "Destination": "/etc/caddy/Caddyfile", "Source": "/host_mnt" + cf}]}
+            args = argparse.Namespace(container="x", caddyfile=None, dir=None, compose=None, service=None, image=None)
+            with mock.patch.object(c, "inspect_container", return_value=info):
+                c.configure(args)
+            self.assertEqual(c.CADDYFILE, cf)
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
