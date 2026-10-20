@@ -1,24 +1,24 @@
 Architectures: all amd64 arm64 armhf armel i386 riscv64 ppc64el s390x
 Codename: stable
 Components: main
-Date: Sun, 18 Oct 2026 19:11:23 +0000
+Date: Tue, 20 Oct 2026 20:12:09 +0000
 Description: caddy-tui: terminal UI for Caddy in Docker
 Label: caddy-tui
 Origin: caddy-tui
 Suite: stable
 MD5Sum:
- 7585df27a7723e836bde1ed58130c97a              247 Release
- 0422ec66a7078b7cafc48db3b197ec22             4914 main/binary-all/Packages
- 8163bf0887fd409637328b27fbd27494             1441 main/binary-all/Packages.gz
+ 5df79eff661b352be1f4e6532dcea948              247 Release
+ 24f2420553cc6cea40f1b2277fe18669             6552 main/binary-all/Packages
+ 745842cb6a610c2cf66ad4ed30c220e0             1643 main/binary-all/Packages.gz
 SHA1:
- 3e61e3f1b750eebd96ddc7f08f668371aadab6e9              247 Release
- 952c0c98104e04c9d136a7f9395be4b700025267             4914 main/binary-all/Packages
- c8dd9b8458c9f11e6825d439cabdd9770c196ce2             1441 main/binary-all/Packages.gz
+ 62d6e1e7195b2b687bd73c4c169f279df4cb1c84              247 Release
+ fbaa89f10c6763cdecd99a170595d9317ab1c841             6552 main/binary-all/Packages
+ 9b8855944956bc0b708bd81186ca657cc23678fb             1643 main/binary-all/Packages.gz
 SHA256:
- 2ef6253c5e67eb9e6eed3b95c6402172be2f8f236ca7e1040f809ede4960626b              247 Release
- d3a9f73b13da894be504befc70ebd2578160c45d2f80124e5d89f4cb83cf9f07             4914 main/binary-all/Packages
- 0fd911e8bc2930e06908a52365ff329607ebe21a41e175a99300aa9983fcbb53             1441 main/binary-all/Packages.gz
+ 0d12d7e39da907601ec6c320085b5f87cb64f29aaffff8141fcaa86f9179da54              247 Release
+ 8e243df436ef32a36a3fc2ea8f9c342cfb29088dd0c8b011533e73f8daf67346             6552 main/binary-all/Packages
+ fe4fab4dd346c75fd8d565ca8d0afa00709e0f6728c1be0afe9cefb7f6a38cf7             1643 main/binary-all/Packages.gz
 SHA512:
- 669c891bca1da6f4241a1b3ac555b88af39077c44c4b7a30eb5824872936dda70291d8c705213e0e7de78271e87739edbabb57b67bbdc65b640145d7da65a3aa              247 Release
- c6dbf7ebe60fc94c2938d6b66b46d9a1e569686566a5260a45606a66da781ac25cedae0ee9f3b290e78e034b4f66f7503037d185d87867e80f10dbf5e9cbac31             4914 main/binary-all/Packages
- ac521c098970feb052bd112d1c56f7fa9d798088c302863a4c22a1cc5e58326fe73f2a769a336b7281c8da0b06e4fd53aafc0c66adeb1b490881d1b613d5178e             1441 main/binary-all/Packages.gz
+ a3a1f574b13d626d5f45864622e70f067cdbc06f6becf9ca7f519e33cbe918e7c317c5a94e14c6746c92511df1d5d9794e7ee150a68ac9d9cb4b378264dcaca5              247 Release
+ affabc3c800527ef598b9b3bab0ff43c8ee74c7143eb8679b9a03b119b9d15a73b47882be7ff11a4eddad24d64a464047f466e373ce78661fa70bb2391e2faf6             6552 main/binary-all/Packages
+ 974233ea3a64b0a2b6828656673f8bc1666f8c256802baa93b7cca8d9652135fa0dbc8b97c7341647b5663db5fb9c8fa34c29d5c5b3fd8bc1853e5c7f2ddd5d0             1643 main/binary-all/Packages.gz
