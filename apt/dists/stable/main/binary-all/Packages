@@ -138,3 +138,38 @@ Description: terminal UI to manage a Caddy server running in Docker
  The container, Caddyfile and docker compose project are autodetected. The
  interface is available in English and Spanish.
 
+Package: caddy-tui
+Architecture: all
+Version: 1.9.2
+Priority: optional
+Section: admin
+Maintainer: Miguel González Oreiro <mgoreiro@gmail.com>
+Installed-Size: 269
+Depends: python3:any, docker.io | docker-ce-cli
+Recommends: nano
+Suggests: docker-compose-v2 | docker-compose-plugin
+Filename: pool/main/c/caddy-tui/caddy-tui_1.9.2_all.deb
+Size: 72162
+MD5sum: 99ea974ed26a6394caf0f25096a5f67d
+SHA1: f0418dac2b3b7ece01343c0a436cbb70be6ab9af
+SHA256: b905e93eccab5bd3b70f28190bd04a4d14db77cb31be1c38f0da6bc531930f7e
+SHA512: 9e90804e84b9de9b74d71949afcb9b7403d8ed74512ff175824dcfb40829b1e49063ad50d769c66317c4e4379f119361937fe486e43fe401dce5214317c0e9da
+Homepage: https://github.com/mgoreiro/caddy-tui
+Description: terminal UI to manage a Caddy server running in Docker
+ caddy-tui is a dependency-free terminal interface for administering a Caddy
+ web server that runs in a Docker container.
+ .
+  * Edit the Caddyfile safely: changes are validated before saving, with
+    automatic backups; hot reload without downtime.
+  * Wizard to add reverse-proxy services (HTTPS upstreams, gzip, security
+    headers, access log, basic authentication).
+  * Live traffic monitor: requests per second, status codes, latency, top
+    domains and client IPs.
+  * Guided diagnostics that detect and fix common problems: stale Caddyfile
+    inside the container, unpublished ports, services on other Docker networks,
+    missing host.docker.internal, undefined variables.
+  * Start, stop, restart, logs, formatting, backup and restore.
+ .
+ The container, Caddyfile and docker compose project are autodetected. The
+ interface is available in English and Spanish.
+
