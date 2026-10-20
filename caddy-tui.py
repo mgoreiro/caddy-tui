@@ -57,7 +57,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.9.1"
+__version__ = "1.9.2"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -310,9 +310,19 @@ def print_caddies():
         return 1
     for name, image, state in rows:
         info = inspect_container(name) or {}
-        src = next((m["Source"] for m in info.get("Mounts", []) if m.get("Destination", "").endswith("Caddyfile")), "-")
+        src = host_path(next((m["Source"] for m in info.get("Mounts", []) if m.get("Destination", "").endswith("Caddyfile")), "-"))
         print(f"{name:<24} {state:<10} {image:<28} {src}")
     return 0
+
+
+def host_path(path):
+    """A bind-mount source as Docker reports it -> the path on this machine.
+    Docker Desktop (macOS) reports the paths of its VM: /host_mnt/Users/me/x for /Users/me/x."""
+    if path and not os.path.exists(path):
+        for prefix in ("/host_mnt", "/run/desktop/mnt/host"):
+            if path.startswith(prefix + "/") and os.path.exists(path[len(prefix):]):
+                return path[len(prefix):]
+    return path
 
 
 def configure(args):
@@ -356,7 +366,7 @@ def configure(args):
             CONF_IN_CONTAINER, src = dest, m["Source"]
         elif dest == "/etc/caddy" and not src:
             src = os.path.join(m["Source"], "Caddyfile")
-    CADDYFILE = os.path.abspath(args.caddyfile) if args.caddyfile else (src or os.path.join(os.getcwd(), "Caddyfile"))
+    CADDYFILE = os.path.abspath(args.caddyfile) if args.caddyfile else (host_path(src) if src else os.path.join(os.getcwd(), "Caddyfile"))
     if not os.path.isfile(CADDYFILE):
         sys.exit(_("Caddyfile not found at {path}.\nIf it belongs to another user, run with sudo; "
                    "or give its path with --caddyfile.").format(path=CADDYFILE))

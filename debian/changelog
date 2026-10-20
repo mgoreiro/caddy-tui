@@ -1,3 +1,12 @@
+caddy-tui (1.9.2) unstable; urgency=medium
+
+  * Fix: on Docker Desktop (macOS, and WSL) Docker reports the source of a
+    bind mount with the path of its VM (/host_mnt/Users/me/Caddyfile), so the
+    Caddyfile of a container created by docker compose was "not found". The
+    path is now mapped back to the one on this machine.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Tue, 20 Oct 2026 11:00:00 +0200
+
 caddy-tui (1.9.1) unstable; urgency=medium
 
   * Fix: every periodic check (and every validation) created and destroyed a
