@@ -168,6 +168,8 @@ lectura, así que se puede programar sin riesgo:
 | `2` | al menos un problema |
 | `3` | no se pudo ejecutar (sin Docker, contenedor o Caddyfile no encontrados, varios contenedores sin elegir) |
 
+La comprobación periódica **no crea ni destruye contenedores**: valida la configuración dentro del propio Caddy en marcha (`docker exec`), así que las herramientas que vigilan los eventos de Docker —como docker-controller-bot— no avisan de nada por ella. Solo se usa un contenedor desechable cuando Caddy no está en marcha, cuando validas un candidato que necesita variables del `.env` o cuando importa ficheros por ruta relativa.
+
 Con `--quiet` imprime solo avisos y problemas (nada si todo va bien) y con `--json` una salida para
 máquinas (`status`, `problems`, `warnings`, `checks[]`). Los códigos siguen la convención de
 Nagios/Icinga, así que sirve también como plugin de monitorización.

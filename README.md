@@ -176,7 +176,9 @@ read-only, so it is safe to schedule:
 | `3` | could not run (no Docker, container or Caddyfile not found, several containers and none chosen) |
 
 Add `--quiet` to print only warnings and problems (nothing if all is well) and `--json` for
-machine-readable output (`status`, `problems`, `warnings`, `checks[]`). These exit codes follow the
+machine-readable output (`status`, `problems`, `warnings`, `checks[]`). The periodic check does **not create or destroy containers**: it validates the configuration inside the running Caddy (`docker exec`), so tools that watch Docker events — such as docker-controller-bot — report nothing for it. A throw-away container is only used when Caddy is not running, when you validate a candidate that needs variables from the `.env`, or when it imports files by relative path.
+
+These exit codes follow the
 Nagios/Icinga convention, so it also works as a monitoring plugin.
 
 ### Banning scanners (`--auto-block`)
