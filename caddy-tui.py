@@ -57,7 +57,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.9.2"
+__version__ = "1.10.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -1637,9 +1637,23 @@ def diagnose():
         elif "refused" in low:
             add("warn", _("{host}:{port} refuses the connection").format(host=host, port=port),
                 _("The service is not listening: is it stopped, or on another port?"))
+        elif upstream_answers(host, port, not https):
+            if https:
+                add("err", _("Upstream {host}:{port} speaks plain HTTP, but the Caddyfile reaches it with HTTPS").format(host=host, port=port),
+                    _("Caddy answers 502 (\"server gave HTTP response to HTTPS client\")."),
+                    _("Fix: remove 'https://' from that reverse_proxy."))
+            else:
+                add("err", _("Upstream {host}:{port} speaks HTTPS, but the Caddyfile reaches it in plain HTTP").format(host=host, port=port),
+                    _("Caddy answers 502 (malformed HTTP response)."),
+                    _("Fix: use 'reverse_proxy https://{host}:{port}' (with 'transport http {{ tls_insecure_skip_verify }}' if its certificate is self-signed).").format(host=host, port=port))
         else:
             add("warn", _("{host}:{port} does not respond (timeout)").format(host=host, port=port),
                 _("Check that the service is running and the firewall."))
+
+    for name, port in published_plain_http(text):
+        add("warn", _("'{name}' is published on port {port} in plain HTTP, outside Caddy").format(name=name, port=port),
+            _("Whoever reaches that port talks unencrypted, and https://...:{port} fails with \"SSL received a record that exceeded the maximum length\".").format(port=port),
+            _("Fix: stop publishing that port in the docker compose of '{name}' (Caddy reaches it through the Docker network), or use http:// on purpose.").format(name=name))
 
     rc, logs = run(["docker", "logs", "--since", "10m", CONTAINER], timeout=20)
     errs = Counter()
@@ -2130,6 +2144,11 @@ def local_probe_row(ep, result):
             return "warn", url, [_("Certificate not trusted by this machine (normal with Caddy's internal CA): {reason}").format(
                 reason=result["error"])]
         return "err", url, [_("TLS certificate problem: {reason}").format(reason=result["error"])]
+    if result.get("plain_http"):
+        return "err", url, [_("Port {port} answers plain HTTP, but this site is meant to be served over HTTPS "
+                              "(browsers fail with \"SSL received a record that exceeded the maximum length\").").format(port=port),
+                            _("Fix: something other than Caddy is listening on that port: check the published ports "
+                              "('docker ps') and whether the address in the Caddyfile should be http://.")]
     if result["error"]:
         return "err", url, [_("No answer from Caddy: {error}").format(error=result["error"])]
     if result["status"] >= 500:
@@ -2142,6 +2161,42 @@ def local_probe_row(ep, result):
             reason=result["cert_warning"]))
         return "warn", url, details
     return "ok", url, details
+
+
+def upstream_answers(host, port, https):
+    """True if host:port answers HTTP(S) from inside the Caddy container (the scheme Caddy would not use)."""
+    cmd = ["docker", "exec", CONTAINER, "wget", "-S", "--spider", "-q", "-T", "4"]
+    rc, out = run(cmd + (["--no-check-certificate"] if https else []) + [f"{'https' if https else 'http'}://{host}:{port}"],
+                  timeout=20)
+    return "http/" in out.lower()
+
+
+def published_plain_http(text):
+    """[(container, host port)]: upstream containers also published straight to the host in plain HTTP.
+    Caddy already serves them over HTTPS, so that port is an unencrypted back door (and https://host:port fails)."""
+    found = []
+    for host, port, https in parse_upstreams(text):
+        if https or host == "host.docker.internal":
+            continue
+        rc, js = run(["docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", host], timeout=15)
+        if rc != 0:
+            continue
+        try:
+            ports = json.loads(js) or {}
+        except ValueError:
+            continue
+        for b in ports.get(f"{port}/tcp") or []:
+            if b.get("HostIp") in ("127.0.0.1", "::1") or not str(b.get("HostPort", "")).isdigit():
+                continue
+            hp = int(b["HostPort"])
+            if (host, hp) in found:
+                continue
+            if probe_http("http", host, hp, "127.0.0.1")["status"] is None:
+                continue
+            if probe_http("https", host, hp, "127.0.0.1", verify=False)["status"] is not None:
+                continue                                            # it does TLS itself
+            found.append((host, hp))
+    return found
 
 
 def probe_services(text, skip_ports=(), with_public=False, workers=8):
@@ -2158,6 +2213,8 @@ def probe_services(text, skip_ports=(), with_public=False, workers=8):
             unverified = probe_http(scheme, host, port, "127.0.0.1", verify=False)
             if unverified["status"] is not None:
                 local = dict(unverified, cert_warning=local["error"])
+        if scheme == "https" and not local["cert_error"] and str(local["error"] or "").startswith("TLS:"):
+            local["plain_http"] = probe_http("http", host, port, "127.0.0.1")["status"] is not None
         pub = ips = None
         if with_public:
             ips = resolve_host(host)

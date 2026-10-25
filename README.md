@@ -141,6 +141,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 - Site **ports** not published by the container.
 - **Unreachable upstreams**: another Docker network (it finds which one), `host.docker.internal`
   without `extra_hosts`, connection refused, timeout.
+- **HTTP where HTTPS is expected** (browsers say *"SSL received a record that exceeded the maximum length"*): an upstream that speaks HTTP while the Caddyfile uses `https://` (or the other way round, a 502 in both cases); a container that Caddy already serves over HTTPS but that is **also published in plain HTTP** on the host (unencrypted back door, and `https://host:port` fails); a site whose port answers plain HTTP instead of TLS.
 - Recent errors in the logs, grouped.
 - **Every site answers** (checked from this machine, over HTTPS with the certificate verified): `5xx`, timeouts and certificate problems are errors. Sites on Caddy's internal CA (`localhost`, `*.local`…) are reported as a warning about the certificate but their status is still checked.
 

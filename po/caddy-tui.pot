@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 20:41+0200\n"
+"POT-Creation-Date: 2026-10-26 00:30+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -445,10 +445,53 @@ msgid "The service is not listening: is it stopped, or on another port?"
 msgstr ""
 
 #, python-brace-format
+msgid ""
+"Upstream {host}:{port} speaks plain HTTP, but the Caddyfile reaches it with "
+"HTTPS"
+msgstr ""
+
+msgid "Caddy answers 502 (\"server gave HTTP response to HTTPS client\")."
+msgstr ""
+
+msgid "Fix: remove 'https://' from that reverse_proxy."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Upstream {host}:{port} speaks HTTPS, but the Caddyfile reaches it in plain "
+"HTTP"
+msgstr ""
+
+msgid "Caddy answers 502 (malformed HTTP response)."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Fix: use 'reverse_proxy https://{host}:{port}' (with 'transport http "
+"{{ tls_insecure_skip_verify }}' if its certificate is self-signed)."
+msgstr ""
+
+#, python-brace-format
 msgid "{host}:{port} does not respond (timeout)"
 msgstr ""
 
 msgid "Check that the service is running and the firewall."
+msgstr ""
+
+#, python-brace-format
+msgid "'{name}' is published on port {port} in plain HTTP, outside Caddy"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Whoever reaches that port talks unencrypted, and https://...:{port} fails "
+"with \"SSL received a record that exceeded the maximum length\"."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Fix: stop publishing that port in the docker compose of '{name}' (Caddy "
+"reaches it through the Docker network), or use http:// on purpose."
 msgstr ""
 
 #, python-brace-format
@@ -649,6 +692,19 @@ msgstr ""
 
 #, python-brace-format
 msgid "TLS certificate problem: {reason}"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Port {port} answers plain HTTP, but this site is meant to be served over "
+"HTTPS (browsers fail with \"SSL received a record that exceeded the maximum "
+"length\")."
+msgstr ""
+
+msgid ""
+"Fix: something other than Caddy is listening on that port: check the "
+"published ports ('docker ps') and whether the address in the Caddyfile "
+"should be http://."
 msgstr ""
 
 #, python-brace-format
