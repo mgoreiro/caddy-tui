@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-18 20:41+0200\n"
+"POT-Creation-Date: 2026-10-26 00:30+0100\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -473,11 +473,54 @@ msgid "The service is not listening: is it stopped, or on another port?"
 msgstr "El servicio no está escuchando: ¿está parado o es otro puerto?"
 
 #, python-brace-format
+msgid ""
+"Upstream {host}:{port} speaks plain HTTP, but the Caddyfile reaches it with "
+"HTTPS"
+msgstr "El upstream {host}:{port} habla HTTP plano, pero el Caddyfile lo contacta con HTTPS"
+
+msgid "Caddy answers 502 (\"server gave HTTP response to HTTPS client\")."
+msgstr "Caddy responde 502 (\"server gave HTTP response to HTTPS client\")."
+
+msgid "Fix: remove 'https://' from that reverse_proxy."
+msgstr "Solución: quita 'https://' de ese reverse_proxy."
+
+#, python-brace-format
+msgid ""
+"Upstream {host}:{port} speaks HTTPS, but the Caddyfile reaches it in plain "
+"HTTP"
+msgstr "El upstream {host}:{port} habla HTTPS, pero el Caddyfile lo contacta en HTTP plano"
+
+msgid "Caddy answers 502 (malformed HTTP response)."
+msgstr "Caddy responde 502 (respuesta HTTP malformada)."
+
+#, python-brace-format
+msgid ""
+"Fix: use 'reverse_proxy https://{host}:{port}' (with 'transport http "
+"{{ tls_insecure_skip_verify }}' if its certificate is self-signed)."
+msgstr "Solución: usa 'reverse_proxy https://{host}:{port}' (con 'transport http {{ tls_insecure_skip_verify }}' si su certificado es autofirmado)."
+
+#, python-brace-format
 msgid "{host}:{port} does not respond (timeout)"
 msgstr "{host}:{port} no responde (timeout)"
 
 msgid "Check that the service is running and the firewall."
 msgstr "Revisa que el servicio esté arrancado y el cortafuegos."
+
+#, python-brace-format
+msgid "'{name}' is published on port {port} in plain HTTP, outside Caddy"
+msgstr "'{name}' está publicado en el puerto {port} en HTTP plano, fuera de Caddy"
+
+#, python-brace-format
+msgid ""
+"Whoever reaches that port talks unencrypted, and https://...:{port} fails "
+"with \"SSL received a record that exceeded the maximum length\"."
+msgstr "Quien llegue a ese puerto habla sin cifrar, y https://...:{port} falla con \"SSL ha recibido un registro que excedía la longitud máxima permitida\"."
+
+#, python-brace-format
+msgid ""
+"Fix: stop publishing that port in the docker compose of '{name}' (Caddy "
+"reaches it through the Docker network), or use http:// on purpose."
+msgstr "Solución: deja de publicar ese puerto en el docker compose de '{name}' (Caddy llega a él por la red de Docker), o usa http:// a propósito."
 
 #, python-brace-format
 msgid "{count} errors in the logs of the last 10 min"
@@ -702,6 +745,19 @@ msgstr ""
 #, python-brace-format
 msgid "TLS certificate problem: {reason}"
 msgstr "Problema con el certificado TLS: {reason}"
+
+#, python-brace-format
+msgid ""
+"Port {port} answers plain HTTP, but this site is meant to be served over "
+"HTTPS (browsers fail with \"SSL received a record that exceeded the maximum "
+"length\")."
+msgstr "El puerto {port} responde HTTP plano, pero este sitio debería servirse por HTTPS (los navegadores fallan con \"SSL ha recibido un registro que excedía la longitud máxima permitida\")."
+
+msgid ""
+"Fix: something other than Caddy is listening on that port: check the "
+"published ports ('docker ps') and whether the address in the Caddyfile "
+"should be http://."
+msgstr "Solución: algo que no es Caddy escucha en ese puerto: revisa los puertos publicados ('docker ps') y si la dirección del Caddyfile debería ser http://."
 
 #, python-brace-format
 msgid "No answer from Caddy: {error}"

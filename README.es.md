@@ -134,6 +134,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 - **Puertos** de los sitios sin publicar en el contenedor.
 - **Destinos inalcanzables**: otra red Docker (detecta cuál), `host.docker.internal` sin
   `extra_hosts`, conexión rechazada, timeout.
+- **HTTP donde se espera HTTPS** (los navegadores dicen *"SSL ha recibido un registro que excedía la longitud máxima permitida"*): un destino que habla HTTP cuando el Caddyfile usa `https://` (o al revés; en ambos casos un 502); un contenedor que Caddy ya sirve por HTTPS pero que **además está publicado en HTTP plano** en el host (puerta trasera sin cifrar, y `https://host:puerto` falla); un sitio cuyo puerto responde HTTP plano en lugar de TLS.
 - Errores recientes en los logs, agrupados.
 - **Que cada sitio responda** (comprobado desde esta máquina, por HTTPS verificando el certificado): los `5xx`, los timeouts y los problemas de certificado son errores. Los sitios con la CA interna de Caddy (`localhost`, `*.local`…) dan un aviso por el certificado pero se comprueba igualmente su estado.
 

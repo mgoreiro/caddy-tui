@@ -986,6 +986,61 @@ class ProbeHttpServer(unittest.TestCase):
             self.assertTrue(wrong_name["cert_error"])
 
 
+class PlainHttpOnHttps(unittest.TestCase):
+    """Plain HTTP served where HTTPS is expected (browsers: "SSL received a record that exceeded the maximum length")."""
+
+    def test_sitio_https_que_contesta_http(self):
+        srv = ProbeHttpServer.serve(200)
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        port = srv.server_address[1]
+        with mock.patch.object(c, "runtime_env", return_value={}):
+            level, title, details = c.probe_services(f"site.example.com:{port} {{\n}}\n")[0]
+        self.assertEqual((level, title), ("err", f"https://site.example.com:{port}"))
+        self.assertIn("plain HTTP", details[0])
+
+    def test_error_tls_sin_http_detras_sigue_siendo_error_generico(self):
+        tls_err = {"status": None, "ms": 1, "error": "TLS: WRONG_VERSION_NUMBER", "cert_error": False}
+        closed = {"status": None, "ms": 1, "error": "Connection refused", "cert_error": False}
+        with mock.patch.object(c, "runtime_env", return_value={}), \
+             mock.patch.object(c, "probe_http", side_effect=lambda sch, *a, **k: tls_err if sch == "https" else closed):
+            level, __, details = c.probe_services("a.example.com {\n}\n")[0]
+        self.assertEqual(level, "err")
+        self.assertIn("No answer from Caddy", details[0])
+
+    def _inspect(self, ports):
+        def fake_run(cmd, **k):
+            return (0, json.dumps(ports)) if cmd[:2] == ["docker", "inspect"] else (1, "")
+        return fake_run
+
+    def test_puerto_publicado_en_http_fuera_de_caddy(self):
+        ports = {"3000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "3000"}]}
+        plain = lambda sch, *a, **k: {"status": 200 if sch == "http" else None, "error": None, "cert_error": False}
+        with mock.patch.object(c, "run", side_effect=self._inspect(ports)), mock.patch.object(c, "probe_http", side_effect=plain):
+            self.assertEqual(c.published_plain_http(BLOCK_BASE), [("fileshare", 3000)])
+
+    def test_no_avisa_si_no_esta_publicado_o_solo_en_loopback_o_hace_tls(self):
+        plain = lambda sch, *a, **k: {"status": 200 if sch == "http" else None, "error": None, "cert_error": False}
+        both = lambda sch, *a, **k: {"status": 200, "error": None, "cert_error": False}
+        with mock.patch.object(c, "probe_http", side_effect=plain):
+            for ports in ({"3000/tcp": None}, {"3000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "3000"}]}, {}):
+                with mock.patch.object(c, "run", side_effect=self._inspect(ports)):
+                    self.assertEqual(c.published_plain_http(BLOCK_BASE), [], ports)
+        ports = {"3000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "3000"}]}
+        with mock.patch.object(c, "run", side_effect=self._inspect(ports)), mock.patch.object(c, "probe_http", side_effect=both):
+            self.assertEqual(c.published_plain_http(BLOCK_BASE), [])
+
+    def test_upstream_con_esquema_cruzado(self):
+        seen = []
+        def fake_run(cmd, **k):
+            seen.append(cmd[-1])
+            return 0, "  HTTP/1.1 200 OK" if cmd[-1].startswith("https://") else "wget: error"
+        with mock.patch.object(c, "run", side_effect=fake_run):
+            self.assertTrue(c.upstream_answers("app", "8443", True))
+            self.assertFalse(c.upstream_answers("app", "8443", False))
+        self.assertEqual(seen, ["https://app:8443", "http://app:8443"])
+
+
 BLOCK_BASE = """\
 {$DOMAIN} {
 \treverse_proxy fileshare:3000
