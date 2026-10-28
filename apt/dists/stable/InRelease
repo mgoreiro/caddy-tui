@@ -4,40 +4,40 @@ Hash: SHA512
 Architectures: all amd64 arm64 armhf armel i386 riscv64 ppc64el s390x
 Codename: stable
 Components: main
-Date: Sun, 25 Oct 2026 23:43:12 +0000
+Date: Wed, 28 Oct 2026 21:33:33 +0000
 Description: caddy-tui: terminal UI for Caddy in Docker
 Label: caddy-tui
 Origin: caddy-tui
 Suite: stable
 MD5Sum:
- e9ff3f0d55a2432b72b9b337173da896              247 Release
- 37166b92423338c031afb0671e0f8690             9830 main/binary-all/Packages
- 3b5d1b38a653d766c375c316fb2cb885             2033 main/binary-all/Packages.gz
+ aa30a253f722aedf38eb48157f89e110              247 Release
+ ad592b2aa89fd784587fa3c012e8264e            11470 main/binary-all/Packages
+ 7a9a4914bcc0da2c3c1d3713ce99138e             2230 main/binary-all/Packages.gz
 SHA1:
- 687693fe7451a0167375ce0ed315b6185945800e              247 Release
- 42a9b5d68ebf6594791676656b9447257f5a47f4             9830 main/binary-all/Packages
- 26f7372034ca0e9bd67292495f5d587e2cc4b40c             2033 main/binary-all/Packages.gz
+ 574dac6e0c7fd7fcdbd2b50348a6a070cc87737d              247 Release
+ d82124005e38ba418d49a4bfe9320270813caca3            11470 main/binary-all/Packages
+ da6e6bbeecde0a6e6dc753b69944219ed633cd07             2230 main/binary-all/Packages.gz
 SHA256:
- 8e28f2404e4ee0b05a07b32fd18f1133c4f35232bc7cea18ecf39df148c05e27              247 Release
- 6102cf2118266796b0f935a32a0c254f67d9fa19da0efdce640c23d6882286ae             9830 main/binary-all/Packages
- 494fded551af7df458ad9967a326127e5fc39b01d8fab7a72517f20a7c2be13a             2033 main/binary-all/Packages.gz
+ 239805d748c8b65d81ee99bb9f60ee67f487e4a4429afb44d14f7c9a3238d7fd              247 Release
+ 7b13760e5ffcdbbea534c2fc7043de783a083c904607f6e2bec15bbfcb470ca1            11470 main/binary-all/Packages
+ c8c6c6c9e30cecd9eec05799ab54c661282d8b4081db210a7bd8971b40acedc1             2230 main/binary-all/Packages.gz
 SHA512:
- eb6a4aad5546384592c3afbfe9d3317e51c2080608273e03857164074935ddd635309bd2c5ab20743adeaedd018994784a65ffb9933662b12869bb62f89235d7              247 Release
- 9cdfbd9d79e06b6bb5fd27e211369945e5a04211a8c8cc1755f745b5dddab0d02b5486ad4030f839519c66d859aae9168c0992432b0253a13e784594dcfa3df5             9830 main/binary-all/Packages
- 4d9426c5086bbdac40f98e48aa800edfe15214fedef71c95dcbae61a0ed53ddf92cb50f987c33a52ebb9a00b6c10609165d77acbe0142c3618e8381e6527550a             2033 main/binary-all/Packages.gz
+ 31ab5224f78193ffe3f94b4ccb806d3c84e588fc858992c459ee2c2d1a2baaa93612b2189a9660357a1ef806b8b3e6e1c75b819e1ee9f753efd1d657b262c0db              247 Release
+ f74c51ad2e17ff16a40e40e6af3c9e63a604743ba41eecc32fb706a69608ade2720b57bb3209d93f140803d7a2b8cd1ace31c24f3e470e377b80a7651c6975c4            11470 main/binary-all/Packages
+ 5ebf5bdb6a020973ad42613c805756982cae16be92899d20d790080e9a3121d55698bf7832c34c7778552bd5e1e7aa190a0f697e0866266ea61d8e65fc699425             2230 main/binary-all/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEun4jgWiAFjkhvHDeFcJjLdOQEO4FAmrelBAACgkQFcJjLdOQ
-EO5yig//YOCGbFpKWPPABVmYVLEbq8T4P9AHUkTz3UwSxvR3pIX7H7EzwV7krxci
-JDHiKYnl9hGj4UJFevfiHKtddbHUO+tb3K/Y2WY8flj9lURypC6HMYYyJphmGc2d
-JR6lLJzvfwfkZx+QStBoOZ/LdhBPLFnYeyHXY0oQ0gGodE5qoG30bBIgT/JaooLw
-+x/1L2gU3ucyehle2478blWLkxGOAsB4bi5TwbdaPPlIaEp2vuhzLFvDkxvatvis
-4UuZVP7RGM04tzF2uZPDCHa2U2UOXejgUu0R8dzm2rscWZkl9NpYYkZxr+GsLd/c
-OCDcyeHfoh251iUFglfZr8iHe64xck4MiOAtfc10NSZDRMC4SR/SVVlmMoerQC/h
-QK80uYXeKNwQdc3tiPLad2QHdwkUCZ24KOL2DNfDWtvsOy/2SAywShSZgru+qVTN
-eEZTJDB3J6ZDr48+yPGPcGxFrdcq3JbmZSuZ6092gJExjAK1+GLjRp73pD+CSI+r
-c/Tp0ZaU95eNDVsMCX6NL0Kq3axjZYlZzK2E9qnn0Ix2kr4V/QCCumvqFQTJOCje
-pHvzOQ61YyuB7RGc7SNSVEil7aHvOcXxAHJ3Q3LL1zhQCL4nXzLQ6JUt7T9k3I0S
-8mAc3OBqZTRPG7xiNQQQwGcRU3dd2PP69vn3cQ4HBBswPfdlAok=
-=/6mP
+iQIzBAEBCgAdFiEEun4jgWiAFjkhvHDeFcJjLdOQEO4FAmriai0ACgkQFcJjLdOQ
+EO5tmxAAwv5qrot7/1fLAJQYR/ks1S7oD64E52M+DSXy6tLAE+kZpmCK5ln7aHt5
+6hrk5Bjp1IUypEryjaCCkEQesPGmxTxYsdWPPjXRgHPUFctoGY6oFJIHb7O+Qj6V
+2/fE4M3ejbLC/GKWMkacRlEkx5ZIL+BGfQJLGIFUK2I0a/t9Qli8arolQw4F3gXA
+YsQun3XhmZsmD1EBlJWpd0vXqzKTNdkfriwSASsMxdxst/eZoGUrNWxn0PWmpgRU
+jEp5eL3buVsdW32c0SLB2ZSJ/+SupRPl2Ie1fdWEiJSC82vEUuUEpmRKp13njPSn
+wD79ce2MtzpYnvwnOpt/mukSJLIlhDUvzNXtjBhYxBZXf/GH0+a8VNh+kcwzsCYX
+IWa9lxXC9mlMLwInM4sgG8IBCbYNQsAt3j+XTtikRsjpjYMpo2EQZtn9mfN6FkNR
+Tluo28Qi3nf7QFc5r9nVm3a+2kRoTYW7CzlEJq0lUO5oHhM+lznq2/aLbW5gXcmX
+hUBPR5Nf3N17n7vev8lcJH4I22YdZiiWjBIw7slCPKng5EdR8n0Zfw78oxccdBqC
+QIVOjS/BcWcwbEdQ1Vn6KHIAphVeWqFLg9LqUV4Q1wBjuOoZP+SDOK1h7wn1vjP2
+orZakV4lnp7QKtusri7rpGgaZBmmhKMDqMbuDb6r+BX4QKmV7+E=
+=cq5k
 -----END PGP SIGNATURE-----
