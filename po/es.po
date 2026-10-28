@@ -1630,6 +1630,21 @@ msgstr "No se pudo actualizar el compose automáticamente"
 msgid "Add this by hand in {file}:"
 msgstr "Añade a mano esto en {file}:"
 
+msgid "Caddyfile ports missing in {file}: {ports}"
+msgstr "Puertos del Caddyfile que faltan en {file}: {ports}"
+
+msgid "The container publishes them now, but the next recreate will lose them."
+msgstr "El contenedor los publica ahora, pero la próxima vez que se recree se perderán."
+
+msgid "Ports not published"
+msgstr "Puertos sin publicar"
+
+msgid "The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so those sites would not be reachable from outside."
+msgstr "El Caddyfile usa ahora el/los puerto(s) {ports}, pero {file} no los publica, así que esos sitios no serían accesibles desde fuera."
+
+msgid "Publish port(s) {ports} in {file}?"
+msgstr "¿Publicar el/los puerto(s) {ports} en {file}?"
+
 msgid "Recreate the Caddy container to apply the changes?"
 msgstr "¿Recrear el contenedor de Caddy para aplicar los cambios?"
 
