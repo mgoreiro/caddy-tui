@@ -1,3 +1,15 @@
+caddy-tui (1.10.1) unstable; urgency=medium
+
+  * Fix: adding (or editing) a service on its own port (domain:8443) left the
+    port unpublished in the docker compose, so the site was not reachable.
+    After saving, caddy-tui now checks the compose file, offers to add the
+    missing "ports" entries (validated, with backup) and to recreate the
+    container. The diagnostics also flag Caddyfile ports missing from the
+    compose file even when the running container still publishes them, and
+    offer the same correction.
+
+ -- Miguel González Oreiro <mgoreiro@gmail.com>  Wed, 28 Oct 2026 10:00:00 +0100
+
 caddy-tui (1.10.0) unstable; urgency=medium
 
   * New diagnostics for plain HTTP served where HTTPS is expected (the

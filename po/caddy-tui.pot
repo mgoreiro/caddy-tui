@@ -1524,6 +1524,21 @@ msgstr ""
 msgid "Add this by hand in {file}:"
 msgstr ""
 
+msgid "Caddyfile ports missing in {file}: {ports}"
+msgstr ""
+
+msgid "The container publishes them now, but the next recreate will lose them."
+msgstr ""
+
+msgid "Ports not published"
+msgstr ""
+
+msgid "The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so those sites would not be reachable from outside."
+msgstr ""
+
+msgid "Publish port(s) {ports} in {file}?"
+msgstr ""
+
 msgid "Recreate the Caddy container to apply the changes?"
 msgstr ""
 

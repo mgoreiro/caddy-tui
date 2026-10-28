@@ -57,7 +57,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.10.0"
+__version__ = "1.10.1"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -1321,6 +1321,41 @@ def patch_compose(text, service, ports=(), extra_hosts=(), networks=()):
     return "\n".join(lines)
 
 
+def compose_service_ports(text, service):
+    """Host ports published by the compose service, according to the file."""
+    lines = text.split("\n")
+    s = next((i for i, l in enumerate(lines)
+              if re.match(rf"^  {re.escape(service)}:\s*(#.*)?$", l)), None)
+    if s is None:
+        return set()
+    out, in_ports = set(), False
+    for l in lines[s + 1:]:
+        if l.strip() and not l.startswith("   "):
+            break
+        if re.match(r"^    ports:\s*$", l):
+            in_ports = True
+        elif in_ports and l.startswith("      - "):
+            parts = l.split("-", 1)[1].strip().strip("\"'").split("/")[0].split(":")
+            host = parts[-2] if len(parts) > 1 else parts[0]
+            if host.isdigit():
+                out.add(int(host))
+        elif l.strip() and not l.lstrip().startswith("#"):
+            in_ports = False
+    return out
+
+
+def compose_missing_ports(caddyfile_text):
+    """Ports used by the Caddyfile sites that the compose file does not publish."""
+    if not COMPOSE:
+        return []
+    try:
+        with open(COMPOSE, encoding="utf-8") as f:
+            have = compose_service_ports(f.read(), SERVICE)
+    except OSError:
+        return []
+    return [p for p in site_ports(caddyfile_text) if p not in (80, 443) and p not in have]
+
+
 def compose_snippet(need):
     out = ["    # " + _("in service '{service}':").format(service=SERVICE)]
     if need["ports"]:
@@ -1605,6 +1640,14 @@ def diagnose():
         fixes.add("compose")
     elif explicit:
         add("ok", _("Site ports published ({ports})").format(ports=", ".join(map(str, explicit))))
+    in_file = [p for p in compose_missing_ports(text) if p not in missing]
+    if in_file:
+        add("err", _("Caddyfile ports missing in {file}: {ports}").format(
+                file=os.path.basename(COMPOSE), ports=", ".join(map(str, in_file))),
+            _("The container publishes them now, but the next recreate will lose them."),
+            _("Fix: add them to 'ports' of service '{service}' in the docker compose.").format(service=SERVICE))
+        need["ports"] = sorted(set(need["ports"]) | set(in_file))
+        fixes.add("compose")
     std = [p for p in (80, 443) if p not in published]
     if std:
         add("warn", _("Ports {ports} not published").format(ports=" / ".join(map(str, std))),
@@ -3615,6 +3658,7 @@ class App:
         state, __ = container_state()
         if state == "running" and self.ask(_("Reload Caddy now?"), True):
             self.act_reload()
+        self.offer_publish_ports(new)
         return True
 
     def act_manage(self):
@@ -3740,6 +3784,7 @@ class App:
         state, __ = container_state()
         if state == "running" and self.ask(_("Reload Caddy now?"), True):
             self.act_reload()
+        self.offer_publish_ports(new)
 
     # -- traffic monitor
     def act_traffic(self):
@@ -3855,31 +3900,9 @@ class App:
                         "Apply these changes by hand and recreate the container:") + "\n\n" + compose_snippet(need))
             return
         if "compose" in fixes and self.ask(_("Update {file} with the required changes?").format(file=os.path.basename(COMPOSE)), True):
-            try:
-                path = COMPOSE
-                with open(path, encoding="utf-8") as f:
-                    old = f.read()
-                new = patch_compose(old, SERVICE, need["ports"], need["hosts"], need["nets"])
-                cand = os.path.join(os.path.dirname(path), f".compose.candidate.{os.getpid()}.yml")
-                with open(cand, "w", encoding="utf-8") as f:
-                    f.write(new)
-                try:
-                    rc, out = run(["docker", "compose", "-f", cand, "config", "-q"], timeout=30)
-                finally:
-                    os.unlink(cand)
-                if rc != 0:
-                    raise ValueError(_("The resulting compose file is not valid:") + "\n" + out)
-                os.makedirs(BACKUPS, exist_ok=True)
-                bk = os.path.join(BACKUPS, os.path.basename(COMPOSE) + "." + datetime.now().strftime("%Y%m%d-%H%M%S"))
-                shutil.copy2(path, bk)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(new)
-                self.show(_("Compose updated"), "✔ " + _("{file} updated (backup: {path}).").format(file=COMPOSE, path=os.path.relpath(bk, BASE)))
-                recreate = True
-            except (OSError, ValueError) as e:
-                self.show(_("Could not update the compose file automatically"),
-                          f"{e}\n\n" + _("Add this by hand in {file}:").format(file=COMPOSE) + "\n\n" + compose_snippet(need))
+            if not self.update_compose(need):
                 return
+            recreate = True
             self.draw()
         if recreate and self.ask(_("Recreate the Caddy container to apply the changes?"), True):
             self.act_compose(_("Recreate"), "up", "-d", "--force-recreate", "--no-deps", SERVICE)
@@ -3887,6 +3910,54 @@ class App:
             if self.ask(_("Run the diagnostics again?"), True):
                 time.sleep(3)
                 self.act_diagnose()
+
+    def update_compose(self, need):
+        """Patch the compose file (validated, with backup). False if it could not be done."""
+        try:
+            path = COMPOSE
+            with open(path, encoding="utf-8") as f:
+                old = f.read()
+            new = patch_compose(old, SERVICE, need["ports"], need["hosts"], need["nets"])
+            cand = os.path.join(os.path.dirname(path), f".compose.candidate.{os.getpid()}.yml")
+            with open(cand, "w", encoding="utf-8") as f:
+                f.write(new)
+            try:
+                rc, out = run(["docker", "compose", "-f", cand, "config", "-q"], timeout=30)
+            finally:
+                os.unlink(cand)
+            if rc != 0:
+                raise ValueError(_("The resulting compose file is not valid:") + "\n" + out)
+            os.makedirs(BACKUPS, exist_ok=True)
+            bk = os.path.join(BACKUPS, os.path.basename(COMPOSE) + "." + datetime.now().strftime("%Y%m%d-%H%M%S"))
+            shutil.copy2(path, bk)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new)
+            self.show(_("Compose updated"), "✔ " + _("{file} updated (backup: {path}).").format(file=COMPOSE, path=os.path.relpath(bk, BASE)))
+            return True
+        except (OSError, ValueError) as e:
+            self.show(_("Could not update the compose file automatically"),
+                      f"{e}\n\n" + _("Add this by hand in {file}:").format(file=COMPOSE) + "\n\n" + compose_snippet(need))
+            return False
+
+    def offer_publish_ports(self, caddyfile_text):
+        """After saving a site: if its port is not published by the compose, offer to fix it."""
+        if not COMPOSE:
+            return
+        missing = compose_missing_ports(caddyfile_text)
+        if not missing:
+            return
+        ports = ", ".join(map(str, missing))
+        self.show(_("Ports not published"),
+                  _("The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so those "
+                    "sites would not be reachable from outside.").format(ports=ports, file=os.path.basename(COMPOSE)))
+        self.draw()
+        if not self.ask(_("Publish port(s) {ports} in {file}?").format(ports=ports, file=os.path.basename(COMPOSE)), True):
+            return
+        if not self.update_compose({"ports": missing, "hosts": [], "nets": []}):
+            return
+        self.draw()
+        if self.ask(_("Recreate the Caddy container to apply the changes?"), True):
+            self.act_compose(_("Recreate"), "up", "-d", "--force-recreate", "--no-deps", SERVICE)
 
     def act_env(self):
         if not os.path.exists(ENVFILE):

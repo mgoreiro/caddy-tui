@@ -1947,6 +1947,73 @@ class TemplateFlows(unittest.TestCase):
         self.assertIn("# Service edited with caddy-tui", new)
 
 
+class PublishPortsOnAdd(unittest.TestCase):
+    """A new site on its own port must also be published in the docker compose."""
+    PROXY = dict(host="n.example.com:9443", upstream="10.0.0.9:80", https_upstream=False, skip_verify=False,
+                 gzip=True, headers=False, log=True, user="", password="")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.tmp.name
+        self.caddyfile = os.path.join(d, "Caddyfile")
+        self.compose = os.path.join(d, "docker-compose.yml")
+        for path, text in ((self.caddyfile, "app.example.com {\n\treverse_proxy a:1\n}\n"), (self.compose, COMPOSE)):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+        for name, val in (("CADDYFILE", self.caddyfile), ("COMPOSE", self.compose), ("SERVICE", "caddy"),
+                          ("BASE", d), ("BACKUPS", os.path.join(d, "bk"))):
+            p = mock.patch.object(c, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, kw in (("validate_text", dict(return_value=(True, ""))),
+                         ("container_state", dict(return_value=("exited", ""))),
+                         ("run", dict(return_value=(0, "")))):
+            p = mock.patch.object(c, name, **kw)
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = c.App.__new__(c.App)
+        self.questions, self.recreated = [], []
+        self.answer = True
+        self.app.show = lambda t, x: None
+        self.app.busy = lambda m: None
+        self.app.draw = lambda: None
+        self.app.ask = lambda q, d=False: (self.questions.append(q), self.answer)[1]
+        self.app.act_compose = lambda *a, **k: self.recreated.append(a)
+        self.app.pick = lambda title, items: 0
+        self.app.site_form = lambda *a, **k: dict(self.PROXY)
+
+    def test_puertos_publicados_en_el_fichero(self):
+        self.assertEqual(c.compose_service_ports(COMPOSE, "caddy"), {80, 443})
+        self.assertEqual(c.compose_service_ports('services:\n  caddy:\n    ports:\n      - 127.0.0.1:8080:80/tcp\n      - 9000:9000\n', "caddy"), {8080, 9000})
+
+    def test_detecta_el_puerto_que_falta(self):
+        self.assertEqual(c.compose_missing_ports("a.com:9443 {\n\trespond ok\n}\n"), [9443])
+        self.assertEqual(c.compose_missing_ports("a.com {\n\trespond ok\n}\n"), [])
+
+    def test_alta_ofrece_publicar_y_recrear(self):
+        self.app.act_add()
+        self.assertIn('- "9443:9443"', slurp(self.compose))
+        self.assertTrue(any("Publish port" in q for q in self.questions))
+        self.assertEqual(self.recreated, [("Recreate", "up", "-d", "--force-recreate", "--no-deps", "caddy")])
+
+    def test_si_se_rechaza_no_se_toca_el_compose(self):
+        self.answer = False
+        self.app.act_add()
+        self.assertEqual(slurp(self.compose), COMPOSE)
+        self.assertEqual(self.recreated, [])
+
+    def test_sin_puerto_nuevo_no_pregunta(self):
+        self.app.site_form = lambda *a, **k: dict(self.PROXY, host="n.example.com")
+        self.app.act_add()
+        self.assertFalse(any("Publish port" in q for q in self.questions))
+
+    def test_detecta_el_puerto_en_un_caddyfile_ya_guardado(self):
+        with open(self.caddyfile, "a", encoding="utf-8") as f:
+            f.write("n.example.com:9443 {\n\trespond ok\n}\n")
+        self.assertEqual(c.compose_missing_ports(slurp(self.caddyfile)), [9443])
+
+
 class ExportImport(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
