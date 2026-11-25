@@ -1,4 +1,4 @@
-.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.10.1" "User Commands"
+.TH CADDY-TUI 1 "October 2026" "caddy-tui 1.11.0" "User Commands"
 .SH NAME
 caddy-tui \- terminal UI to manage a Caddy server running in Docker
 .SH SYNOPSIS
@@ -63,6 +63,12 @@ With \fB\-\-setup\-alerts\fR: check interval (5 minutes to 24 hours, e.g. 30m, 1
 .TP
 .B \-\-notify\-warnings
 With \fB\-\-setup\-alerts\fR: notify on warnings too, not only on problems.
+.TP
+.B \-\-setup\-router
+Set up SSH key access to an OpenWrt router (it can create the key and install it). The diagnostics then check
+that the router forwards the ports of the Caddyfile (80, 443 and any explicit port) to this machine, and the
+\fBz\fR key offers to create the missing port forwards (named \fIcaddytui_tcp_PORT\fR). Nothing is changed
+without confirmation, and \fB\-\-check\fR never modifies the router.
 .TP
 .B \-\-install
 Guided setup of a new Caddy in Docker: installs Docker if needed (apt systems, root), checks ports and DNS,
