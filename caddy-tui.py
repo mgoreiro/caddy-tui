@@ -41,6 +41,7 @@ import json
 import os
 import queue
 import re
+import shlex
 import shutil
 import socket
 import sqlite3
@@ -57,7 +58,7 @@ import urllib.request
 from collections import Counter, deque
 from datetime import datetime, timezone
 
-__version__ = "1.10.1"
+__version__ = "1.11.0"
 
 # Filled in by configure() from the options and the container.
 BASE = os.getcwd()          # project folder: compose, .env, backups
@@ -192,6 +193,7 @@ MENU = [
     ("d", N_("Diagnostics & repair")),
     ("h", N_("HTTPS certificates")),
     ("p", N_("Probe services")),
+    ("z", N_("Router ports (OpenWrt)")),
     ("w", N_("Traffic statistics")),
     ("y", N_("Update Caddy image")),
     ("e", N_("Edit Caddyfile")),
@@ -1212,6 +1214,235 @@ class TrafficFeed:
             pass
 
 
+# ------------------------------------------------------- router (OpenWrt) ---
+ROUTER_RULE_PREFIX = "caddytui_tcp_"
+
+
+def router_config():
+    """Router settings {host, user, port, key, zone, lan_zone, lan_ip} or None if none is configured.
+    CADDY_ROUTER=[user@]host[:port] and CADDY_ROUTER_KEY win over ~/.config/caddy-tui/config.json."""
+    cfg = dict(load_config().get("router") or {})
+    spec = os.environ.get("CADDY_ROUTER", "").strip()
+    m = re.fullmatch(r"(?:([\w.-]+)@)?([A-Za-z0-9][\w.:-]*?)(?::(\d+))?", spec) if spec else None
+    if m:
+        cfg.update(user=m.group(1) or cfg.get("user") or "root", host=m.group(2),
+                   port=m.group(3) or cfg.get("port") or 22)
+    if os.environ.get("CADDY_ROUTER_KEY"):
+        cfg["key"] = os.environ["CADDY_ROUTER_KEY"]
+    return normalize_router(cfg)
+
+
+def normalize_router(cfg):
+    """Validated router settings (see router_config) or None."""
+    host = str(cfg.get("host") or "")
+    user = str(cfg.get("user") or "root")
+    zone, lan_zone = str(cfg.get("zone") or "wan"), str(cfg.get("lan_zone") or "lan")
+    if (not re.fullmatch(r"[A-Za-z0-9][\w.:-]*", host) or not re.fullmatch(r"[A-Za-z_][\w.-]*", user)
+            or not re.fullmatch(r"\w+", zone) or not re.fullmatch(r"\w+", lan_zone)):
+        return None
+    try:
+        port = int(cfg.get("port") or 22)
+        lan_ip = str(ipaddress.ip_address(cfg["lan_ip"])) if cfg.get("lan_ip") else ""
+    except ValueError:
+        return None
+    return dict(host=host, user=user, port=port, key=str(cfg.get("key") or ""), zone=zone,
+                lan_zone=lan_zone, lan_ip=lan_ip)
+
+
+def router_ssh(cfg, remote_cmd, timeout=20, stdin=None):
+    """Run a command on the router over SSH (key authentication only: it never asks for a password)."""
+    cmd = ["ssh", "-p", str(cfg["port"]), "-o", "BatchMode=yes", "-o", "ConnectTimeout=6",
+           "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR"]
+    if cfg.get("key"):
+        cmd += ["-i", cfg["key"], "-o", "IdentitiesOnly=yes"]
+    return run(cmd + ["--", f"{cfg['user']}@{cfg['host']}", remote_cmd], stdin=stdin, timeout=timeout)
+
+
+def parse_uci_redirects(text):
+    """`uci show firewall` -> [{section, name, src, src_dport, dest_ip, dest_port, proto, target, enabled...}]."""
+    secs = {}
+    for line in text.splitlines():
+        m = re.fullmatch(r"firewall\.([^.=\s]+)(?:\.(\w+))?=(.*)", line.strip())
+        if not m:
+            continue
+        sec, opt, val = m.groups()
+        try:
+            val = " ".join(shlex.split(val))
+        except ValueError:
+            val = val.strip("'")
+        if opt is None:
+            if val == "redirect":
+                secs.setdefault(sec, {"section": sec})
+        elif sec in secs:
+            secs[sec][opt] = val
+    return list(secs.values())
+
+
+def _port_in(spec, port):
+    for part in spec.replace(",", " ").split():
+        lo, __, hi = part.partition("-")
+        try:
+            if int(lo) <= port <= int(hi or lo):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def redirect_covers(r, port, zone):
+    """True if the (enabled) port forward `r` sends TCP `port` arriving on the `zone` zone somewhere."""
+    if r.get("enabled", "1").lower() in ("0", "false", "off", "no"):
+        return False
+    if r.get("src") != zone or r.get("target", "DNAT").upper() != "DNAT":
+        return False
+    if not {"tcp", "all"} & set(r.get("proto", "tcp udp").lower().split()):
+        return False
+    return _port_in(r.get("src_dport", ""), port)
+
+
+def router_plan(redirs, ports, lan_ip, zone):
+    """-> (ok, missing, wrong): ports forwarded to lan_ip, not forwarded at all, forwarded elsewhere [(port, 'ip:port')]."""
+    ok, missing, wrong = [], [], []
+    for p in ports:
+        hits = [r for r in redirs if redirect_covers(r, p, zone)]
+        if not hits:
+            missing.append(p)
+        elif any(r.get("dest_ip") == lan_ip and r.get("dest_port", str(p)) == str(p) for r in hits):
+            ok.append(p)
+        else:
+            r = hits[0]
+            wrong.append((p, f"{r.get('dest_ip') or _('the router itself')}:{r.get('dest_port') or p}"))
+    return ok, missing, wrong
+
+
+def local_ip_towards(host):
+    """IP of this machine on the interface that reaches `host` (no packet is sent)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((host, 9))
+            return s.getsockname()[0]
+    except OSError:
+        return ""
+
+
+def router_open_script(ports, lan_ip, zone="wan", lan_zone="lan"):
+    """Shell script for the router: one named port forward per port (so running it twice changes nothing)."""
+    lan_ip = str(ipaddress.ip_address(lan_ip))
+    if not (re.fullmatch(r"\w+", zone) and re.fullmatch(r"\w+", lan_zone)):
+        raise ValueError(zone)
+    cmds = []
+    for p in ports:
+        p = int(p)
+        if not 0 < p < 65536:
+            raise ValueError(p)
+        s = f"firewall.{ROUTER_RULE_PREFIX}{p}"
+        cmds += [f"uci set {s}=redirect", f"uci set {s}.name='caddy-tui {p}'", f"uci set {s}.enabled='1'",
+                 f"uci set {s}.target='DNAT'", f"uci set {s}.src='{zone}'", f"uci set {s}.src_dport='{p}'",
+                 f"uci set {s}.dest='{lan_zone}'", f"uci set {s}.dest_ip='{lan_ip}'",
+                 f"uci set {s}.dest_port='{p}'", f"uci set {s}.proto='tcp'"]
+    return " && ".join(cmds + ["uci commit firewall", "/etc/init.d/firewall reload"])
+
+
+def router_status(text, cfg=None):
+    """Ask the router which of the Caddyfile's ports it forwards here.
+    -> {status: off|error|ok, cfg, lan_ip, error, ok, missing, wrong}"""
+    cfg = cfg or router_config()
+    if not cfg:
+        return {"status": "off"}
+    lan_ip = cfg["lan_ip"] or local_ip_towards(cfg["host"])
+    rc, out = router_ssh(cfg, "uci show firewall")
+    if rc != 0 or not any(l.startswith("firewall.") for l in out.splitlines()):
+        return {"status": "error", "cfg": cfg, "error": out.splitlines()[-1] if out else _("no answer")}
+    if not lan_ip:
+        return {"status": "error", "cfg": cfg, "error": _("I cannot tell the LAN address of this machine")}
+    ok, missing, wrong = router_plan(parse_uci_redirects(out), site_ports(text), lan_ip, cfg["zone"])
+    return {"status": "ok", "cfg": cfg, "lan_ip": lan_ip, "ok": ok, "missing": missing, "wrong": wrong}
+
+
+def router_open_ports(st, ports):
+    """Create the port forwards on the router. -> (ok, output)."""
+    cfg = st["cfg"]
+    rc, out = router_ssh(cfg, router_open_script(ports, st["lan_ip"], cfg["zone"], cfg["lan_zone"]), timeout=60)
+    return rc == 0, out
+
+
+def router_checks(text, add, fixes, need, st=None):
+    """Diagnostics: are the Caddyfile ports forwarded by the OpenWrt router to this machine?"""
+    st = st or router_status(text)
+    if st["status"] == "off":
+        return
+    host = st["cfg"]["host"]
+    if st["status"] == "error":
+        add("warn", _("Cannot check the router {host}").format(host=host), st["error"],
+            _("Fix: run 'caddy-tui --setup-router' (SSH key access to the OpenWrt router)."))
+        return
+    ports = lambda l: ", ".join(map(str, l))
+    if st["ok"] and not st["missing"] and not st["wrong"]:
+        add("ok", _("The router forwards ports {ports} to this machine ({ip})").format(ports=ports(st["ok"]), ip=st["lan_ip"]))
+    std = [p for p in st["missing"] if p in (80, 443)]
+    other = [p for p in st["missing"] if p not in (80, 443)]
+    hint = _("Fix: let caddy-tui create the port forward(s) on the router.")
+    if std:
+        add("err", _("The router does not forward ports {ports} to this machine ({ip})").format(ports=ports(std), ip=st["lan_ip"]),
+            _("Nothing from the Internet reaches Caddy through them, and Let's Encrypt cannot issue certificates."), hint)
+    if other:
+        add("warn", _("The router does not forward ports {ports} to this machine ({ip})").format(ports=ports(other), ip=st["lan_ip"]),
+            _("Those sites are only reachable from the local network."), hint)
+    for p, dest in st["wrong"]:
+        add("warn", _("The router forwards port {port} to {dest}, not to this machine ({ip})").format(port=p, dest=dest, ip=st["lan_ip"]),
+            _("Fix: change that port forward on the router (caddy-tui does not touch rules it did not create)."))
+    if st["missing"]:
+        need["router"] = st["missing"]
+        fixes.add("router")
+
+
+def setup_router(args):
+    """--setup-router: interactive; stores the router access in the user's config after testing it."""
+    cur = router_config() or {}
+    print(_("SSH access to the OpenWrt router (to check and open the ports Caddy needs)."))
+    host = ask_line(_("Router address"), cur.get("host", "192.168.1.1"))
+    user = ask_line(_("User"), cur.get("user", "root"))
+    port = ask_line(_("SSH port"), str(cur.get("port", 22)))
+    key = os.path.abspath(os.path.expanduser(ask_line(_("Private key"), cur.get("key") or os.path.join(os.path.expanduser("~"), ".ssh", "caddy-tui-router"))))
+    cfg = normalize_router(dict(host=host, user=user, port=port, key=key, lan_ip=cur.get("lan_ip", ""),
+                                zone=cur.get("zone", "wan"), lan_zone=cur.get("lan_zone", "lan")))
+    if not cfg:
+        print(_("Invalid router settings."), file=sys.stderr)
+        return 1
+    if os.path.isdir(key):
+        print(_("{key} is a folder, not a key.").format(key=key), file=sys.stderr)
+        return 1
+    if not os.path.exists(key):
+        if not ask_yes(_("The key {key} does not exist. Create it?").format(key=key), True):
+            return 1
+        os.makedirs(os.path.dirname(key), mode=0o700, exist_ok=True)
+        rc, out = run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "caddy-tui", "-f", key], timeout=30)
+        if rc != 0:
+            print(out, file=sys.stderr)
+            return 1
+    rc, pub = run(["ssh-keygen", "-y", "-f", key], timeout=15)
+    if rc != 0 or not pub.startswith(("ssh-", "ecdsa-", "sk-")):
+        print(_("{key} is not a valid private SSH key (use a path such as {example}).").format(
+            key=key, example=os.path.join(os.path.expanduser("~"), ".ssh", "caddy-tui-router")), file=sys.stderr)
+        return 1
+    rc, out = router_ssh(cfg, "uci show firewall.@defaults[0]")
+    if rc != 0:
+        print(_("The router did not accept the key ({err}).").format(err=out.splitlines()[-1] if out else rc))
+        if not ask_yes(_("Install the key on the router now (it will ask for the router's password)?"), True):
+            return 1
+        remote = "mkdir -p /etc/dropbear && cat >> /etc/dropbear/authorized_keys && chmod 600 /etc/dropbear/authorized_keys"
+        rc = subprocess.run(["ssh", "-p", str(cfg["port"]), "-o", "StrictHostKeyChecking=accept-new", "--",
+                             f"{cfg['user']}@{cfg['host']}", remote], input=pub + "\n", text=True).returncode
+        rc, out = router_ssh(cfg, "uci show firewall.@defaults[0]") if rc == 0 else (rc, "")
+        if rc != 0:
+            print(_("Could not log in with the key. Add this public key to the router by hand "
+                    "(LuCI: System → Administration → SSH-Keys):") + "\n" + pub, file=sys.stderr)
+            return 1
+    update_config(router=cfg)
+    print("✔ " + _("Router {host} reachable. Settings saved in {path}.").format(host=cfg["host"], path=_config_path()))
+    return 0
+
+
 # ----------------------------------------------------------- diagnostics ---
 def parse_upstreams(text):
     """(host, port, https) for each reverse_proxy upstream in the Caddyfile."""
@@ -1653,6 +1884,8 @@ def diagnose():
         add("warn", _("Ports {ports} not published").format(ports=" / ".join(map(str, std))),
             _("They are needed for Let's Encrypt to issue certificates (HTTP-01 challenge) and for the HTTP→HTTPS redirect."),
             _("Ignore this if you use your own certificates, DNS-01 or only a local network."))
+
+    router_checks(text, add, fixes, need)
 
     for host, port, https in parse_upstreams(text):
         url = f"{'https' if https else 'http'}://{host}:{port}"
@@ -3891,6 +4124,9 @@ class App:
             return
         self.draw()
         recreate = "recreate" in fixes
+        if "router" in fixes and self.ask(_("Create the missing port forward(s) on the router?"), True):
+            self.act_router_open(need["router"])
+            self.draw()
         if "start" in fixes and self.ask(_("Start the Caddy container?"), True):
             self.act_start()
             return
@@ -3996,6 +4232,39 @@ class App:
             self.show(_("Probe services"), _("There are no named sites to probe in the Caddyfile."))
             return
         self.show(_("Probe services"), "\n".join(format_items(rows) + ["", summary_line(rows)]))
+
+    def act_router_open(self, ports, st=None):
+        """Create the port forwards on the router (the caller already has the user's consent)."""
+        with open(CADDYFILE, encoding="utf-8") as f:
+            st = st or router_status(f.read())
+        if st["status"] != "ok":
+            self.show(_("Router ports (OpenWrt)"), st.get("error") or _("No router is configured."))
+            return
+        self.busy(_("Creating the port forwards on the router..."))
+        ok, out = router_open_ports(st, ports)
+        if ok:
+            self.show(_("Router ports (OpenWrt)"), "✔ " + _("Ports {ports} are now forwarded to {ip} (rules '{prefix}<port>' in the router's firewall).").format(
+                ports=", ".join(map(str, ports)), ip=st["lan_ip"], prefix=ROUTER_RULE_PREFIX))
+        else:
+            self.show(_("Router ports (OpenWrt)"), "✘ " + _("The router refused the change:") + "\n" + out)
+
+    def act_router(self):
+        title = _("Router ports (OpenWrt)")
+        if not router_config():
+            self.show(title, _("No router is configured. Run 'caddy-tui --setup-router' in a terminal "
+                               "(it sets up SSH key access to the OpenWrt router)."))
+            return
+        self.busy(_("Asking the router (this can take a few seconds)..."))
+        with open(CADDYFILE, encoding="utf-8") as f:
+            text = f.read()
+        st = router_status(text)
+        items, fixes, need = [], set(), {}
+        router_checks(text, lambda lv, t, *d: items.append((lv, t, [x for x in d if x])), fixes, need, st)
+        self.show(title, "\n".join(format_items(items) + ["", summary_line(items)]))
+        if need.get("router"):
+            self.draw()
+            if self.ask(_("Create the missing port forward(s) on the router?"), True):
+                self.act_router_open(need["router"], st)
 
     # -- IP blocklist
     def block_ip(self, raw, ban_seconds=0, reason=""):
@@ -4246,7 +4515,7 @@ class App:
     # -- main loop
     def loop(self):
         actions = {
-            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "w": self.act_stats, "y": self.act_image, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
+            "a": self.act_add, "m": self.act_manage, "t": self.act_traffic, "i": self.act_blocklist, "d": self.act_diagnose, "h": self.act_certs, "p": self.act_probe, "z": self.act_router, "w": self.act_stats, "y": self.act_image, "e": self.act_edit, "v": self.act_validate, "l": self.act_reload,
             "s": self.act_start, "g": self.act_logs, "f": self.act_format,
             "c": self.act_view, "b": self.act_restore, "u": self.act_undo, "k": self.act_backup, "o": self.act_export, "n": self.act_env,
             "x": lambda: self.act_compose(_("Stop"), "stop", SERVICE, confirm=_("Stop Caddy? The site will stop being served over HTTPS.")),
@@ -4306,6 +4575,8 @@ def parse_args():
         "with --check: send a Telegram message when there is a problem (and when it recovers)"))
     ap.add_argument("--setup-alerts", action="store_true", help=_(
         "interactive setup of the Telegram bot and the periodic check (needs root)"))
+    ap.add_argument("--setup-router", action="store_true", help=_(
+        "set up SSH access to the OpenWrt router, so caddy-tui checks (and, if you accept, opens) the ports Caddy needs"))
     ap.add_argument("--remove-alerts", action="store_true", help=_("remove the periodic check set up by --setup-alerts"))
     ap.add_argument("--interval", metavar="TIME", help=_("with --setup-alerts: check interval, e.g. 30m, 1h, 6h"))
     ap.add_argument("--notify-warnings", action="store_true", help=_("with --setup-alerts: notify on warnings too"))
@@ -4341,6 +4612,10 @@ def main():
         args.check = True
     if args.remove_alerts:
         sys.exit(remove_alerts(args))
+    if args.setup_router:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            sys.exit(_("This program needs an interactive terminal."))
+        sys.exit(setup_router(args))
     if args.setup_alerts and os.geteuid() != 0:
         sys.exit(_("Setting up alerts needs root. Run it with sudo."))
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not (args.check or args.setup_alerts or args.auto_block)

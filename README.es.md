@@ -77,6 +77,7 @@ de Caddy y de él deduce la imagen, el `Caddyfile` montado y el proyecto/servici
 | `--compose` | `CADDY_COMPOSE` | fichero docker compose |
 | `--service` | `CADDY_SERVICE` | servicio de Caddy en el compose |
 | `--image` | `CADDY_IMAGE` | imagen usada para validar/formatear |
+| `--setup-router` | `CADDY_ROUTER`, `CADDY_ROUTER_KEY` | acceso SSH al router OpenWrt (`[usuario@]host[:puerto]` y clave) |
 
 Si el `Caddyfile` pertenece a otro usuario (por ejemplo `/root/...`), ejecútalo con `sudo`.
 
@@ -112,6 +113,7 @@ Dentro del programa, la tecla **`L`** cambia de idioma al instante y lo guarda.
 | `w` | **Estadísticas de tráfico** de las últimas 24 h / 7 / 30 / 90 días (ver *Estadísticas de tráfico*) |
 | `p` | **Probar servicios**: hace una petición a cada sitio con nombre del Caddyfile e indica el estado HTTP, el tiempo de respuesta y la validez del certificado. Dos comprobaciones por sitio: *local* (directa al Caddy de esta máquina con el nombre del sitio, verificando el certificado) y *pública* (por DNS como un cliente; si falla solo es un aviso porque puede ser hairpin NAT). El diagnóstico (y con él `--check` y las alertas) hace también la local, así que un `502` o un certificado caducado generan alerta |
 | `t` | **Monitor de tráfico** en vivo: peticiones/s, códigos 2xx–5xx, latencia, gráfica, top dominios e IPs y últimas peticiones (`p` pausa, `w` ventana 1/5/15 min). Requiere `log` en el sitio |
+| `z` | **Puertos del router (OpenWrt)**: comprueba por SSH que tu router OpenWrt redirige a esta máquina los puertos del Caddyfile (80, 443 y los explícitos) y, si aceptas, crea las redirecciones que falten (reglas `caddytui_tcp_<puerto>`, y recarga el cortafuegos). Se configura una vez con `caddy-tui --setup-router`: crea una clave SSH si hace falta y la instala en el router. La misma comprobación está en el diagnóstico (así `--check` y las alertas avisan si desaparece una redirección), pero solo la interfaz modifica el router, y nunca toca reglas que no haya creado él |
 | `d` | **Diagnóstico y reparación** (ver abajo) |
 | `h` | **Certificados HTTPS**: nombres, emisor y caducidad de cada certificado que Caddy tiene guardado; avisa si uno está a punto de caducar (Caddy debería haberlo renovado), si un dominio aún no tiene o si Let's Encrypt/ACME está fallando (mostrando el error). El diagnóstico incluye las mismas comprobaciones |
 | `e` | Editar el Caddyfile: se valida antes de guardar, con copia previa |

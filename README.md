@@ -81,6 +81,7 @@ can be forced:
 | `--list`, `--all` | | list the Caddy containers · run `--check` / `--auto-block` for all of them |
 | `--check`, `--json`, `-q` | | headless diagnostics (see *Monitoring and alerts*) |
 | `--setup-alerts`, `--remove-alerts`, `--notify`, `--interval` | | Telegram alerts and periodic check |
+| `--setup-router` | `CADDY_ROUTER`, `CADDY_ROUTER_KEY` | SSH access to the OpenWrt router (`[user@]host[:port]` and key) |
 
 If the `Caddyfile` belongs to another user (e.g. under `/root/`), run it with `sudo`.
 
@@ -117,6 +118,7 @@ Inside the program, press **`L`** to switch language instantly; the choice is sa
 | `w` | **Traffic statistics** over the last 24 h / 7 / 30 / 90 days (see *Traffic statistics*) |
 | `p` | **Probe services**: requests every named site of the Caddyfile and reports the HTTP status, response time and certificate validity. Two checks per site: *local* (straight to this machine's Caddy with the site's name, certificate verified) and *public* (through DNS like a client; a failure here is only a warning because it can be hairpin NAT). The diagnostics (and so `--check` and the alerts) run the local check too, so a `502` or an expired certificate raises an alert |
 | `t` | **Live traffic monitor**: requests/s, 2xx–5xx codes, latency, graph, top domains and IPs, latest requests (`p` pause, `w` window 1/5/15 min). Needs `log` in the site |
+| `z` | **Router ports (OpenWrt)**: checks over SSH that your OpenWrt router forwards the Caddyfile ports (80, 443 and any explicit one) to this machine and, after asking, creates the missing port forwards (`caddytui_tcp_<port>` rules, then reloads the firewall). Set it up once with `caddy-tui --setup-router`: it creates an SSH key if needed and installs it on the router. The same check runs in the diagnostics (so `--check` and the alerts warn when a forward disappears), but only the interface ever changes the router, and rules it did not create are never touched |
 | `d` | **Diagnostics and repair** (see below) |
 | `h` | **HTTPS certificates**: names, issuer and expiry of every certificate Caddy has stored; warns when one is about to expire (Caddy should have renewed it), when a domain has none yet, or when Let's Encrypt/ACME is failing (showing the error). The diagnostics include the same checks |
 | `e` | Edit the Caddyfile: validated before saving, with a previous backup |

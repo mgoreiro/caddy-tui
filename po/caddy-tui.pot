@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-26 00:30+0100\n"
+"POT-Creation-Date: 2026-11-25 19:58+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -60,6 +60,9 @@ msgid "HTTPS certificates"
 msgstr ""
 
 msgid "Probe services"
+msgstr ""
+
+msgid "Router ports (OpenWrt)"
 msgstr ""
 
 msgid "Traffic statistics"
@@ -246,6 +249,99 @@ msgstr ""
 msgid "(custom block)"
 msgstr ""
 
+msgid "the router itself"
+msgstr ""
+
+msgid "no answer"
+msgstr ""
+
+msgid "I cannot tell the LAN address of this machine"
+msgstr ""
+
+#, python-brace-format
+msgid "Cannot check the router {host}"
+msgstr ""
+
+msgid ""
+"Fix: run 'caddy-tui --setup-router' (SSH key access to the OpenWrt router)."
+msgstr ""
+
+#, python-brace-format
+msgid "The router forwards ports {ports} to this machine ({ip})"
+msgstr ""
+
+msgid "Fix: let caddy-tui create the port forward(s) on the router."
+msgstr ""
+
+#, python-brace-format
+msgid "The router does not forward ports {ports} to this machine ({ip})"
+msgstr ""
+
+msgid ""
+"Nothing from the Internet reaches Caddy through them, and Let's Encrypt "
+"cannot issue certificates."
+msgstr ""
+
+msgid "Those sites are only reachable from the local network."
+msgstr ""
+
+#, python-brace-format
+msgid "The router forwards port {port} to {dest}, not to this machine ({ip})"
+msgstr ""
+
+msgid ""
+"Fix: change that port forward on the router (caddy-tui does not touch rules "
+"it did not create)."
+msgstr ""
+
+msgid ""
+"SSH access to the OpenWrt router (to check and open the ports Caddy needs)."
+msgstr ""
+
+msgid "Router address"
+msgstr ""
+
+msgid "User"
+msgstr ""
+
+msgid "SSH port"
+msgstr ""
+
+msgid "Private key"
+msgstr ""
+
+msgid "Invalid router settings."
+msgstr ""
+
+#, python-brace-format
+msgid "{key} is a folder, not a key."
+msgstr ""
+
+#, python-brace-format
+msgid "The key {key} does not exist. Create it?"
+msgstr ""
+
+#, python-brace-format
+msgid "{key} is not a valid private SSH key (use a path such as {example})."
+msgstr ""
+
+#, python-brace-format
+msgid "The router did not accept the key ({err})."
+msgstr ""
+
+msgid ""
+"Install the key on the router now (it will ask for the router's password)?"
+msgstr ""
+
+msgid ""
+"Could not log in with the key. Add this public key to the router by hand "
+"(LuCI: System → Administration → SSH-Keys):"
+msgstr ""
+
+#, python-brace-format
+msgid "Router {host} reachable. Settings saved in {path}."
+msgstr ""
+
 #, python-brace-format
 msgid "Service '{service}' not found in {file}"
 msgstr ""
@@ -393,6 +489,13 @@ msgstr ""
 
 #, python-brace-format
 msgid "Site ports published ({ports})"
+msgstr ""
+
+#, python-brace-format
+msgid "Caddyfile ports missing in {file}: {ports}"
+msgstr ""
+
+msgid "The container publishes them now, but the next recreate will lose them."
 msgstr ""
 
 #, python-brace-format
@@ -1491,6 +1594,9 @@ msgstr ""
 msgid "Diagnostics"
 msgstr ""
 
+msgid "Create the missing port forward(s) on the router?"
+msgstr ""
+
 msgid "Start the Caddy container?"
 msgstr ""
 
@@ -1505,6 +1611,15 @@ msgstr ""
 
 #, python-brace-format
 msgid "Update {file} with the required changes?"
+msgstr ""
+
+msgid "Recreate the Caddy container to apply the changes?"
+msgstr ""
+
+msgid "Recreate"
+msgstr ""
+
+msgid "Run the diagnostics again?"
 msgstr ""
 
 msgid "The resulting compose file is not valid:"
@@ -1524,28 +1639,17 @@ msgstr ""
 msgid "Add this by hand in {file}:"
 msgstr ""
 
-msgid "Caddyfile ports missing in {file}: {ports}"
-msgstr ""
-
-msgid "The container publishes them now, but the next recreate will lose them."
-msgstr ""
-
 msgid "Ports not published"
 msgstr ""
 
-msgid "The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so those sites would not be reachable from outside."
+#, python-brace-format
+msgid ""
+"The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so "
+"those sites would not be reachable from outside."
 msgstr ""
 
+#, python-brace-format
 msgid "Publish port(s) {ports} in {file}?"
-msgstr ""
-
-msgid "Recreate the Caddy container to apply the changes?"
-msgstr ""
-
-msgid "Recreate"
-msgstr ""
-
-msgid "Run the diagnostics again?"
 msgstr ""
 
 msgid "No .env exists. Create it from .env.example?"
@@ -1566,6 +1670,29 @@ msgid "Probing the sites (this can take a few seconds)..."
 msgstr ""
 
 msgid "There are no named sites to probe in the Caddyfile."
+msgstr ""
+
+msgid "No router is configured."
+msgstr ""
+
+msgid "Creating the port forwards on the router..."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Ports {ports} are now forwarded to {ip} (rules '{prefix}<port>' in the "
+"router's firewall)."
+msgstr ""
+
+msgid "The router refused the change:"
+msgstr ""
+
+msgid ""
+"No router is configured. Run 'caddy-tui --setup-router' in a terminal (it "
+"sets up SSH key access to the OpenWrt router)."
+msgstr ""
+
+msgid "Asking the router (this can take a few seconds)..."
 msgstr ""
 
 msgid ""
@@ -1860,6 +1987,11 @@ msgstr ""
 
 msgid ""
 "interactive setup of the Telegram bot and the periodic check (needs root)"
+msgstr ""
+
+msgid ""
+"set up SSH access to the OpenWrt router, so caddy-tui checks (and, if you "
+"accept, opens) the ports Caddy needs"
 msgstr ""
 
 msgid "remove the periodic check set up by --setup-alerts"

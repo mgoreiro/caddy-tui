@@ -2681,6 +2681,125 @@ class DockerDesktopPaths(unittest.TestCase):
             self.assertEqual(c.CADDYFILE, cf)
 
 
+class RouterOpenWrt(unittest.TestCase):
+    UCI = """\
+firewall.cfg01=redirect
+firewall.cfg01.name='Caddy HTTP'
+firewall.cfg01.src='wan'
+firewall.cfg01.src_dport='80'
+firewall.cfg01.dest='lan'
+firewall.cfg01.dest_ip='192.168.1.50'
+firewall.cfg01.dest_port='80'
+firewall.cfg01.proto='tcp'
+firewall.cfg01.target='DNAT'
+firewall.@redirect[0]=redirect
+firewall.@redirect[0].src='wan'
+firewall.@redirect[0].src_dport='443'
+firewall.@redirect[0].dest_ip='192.168.1.99'
+firewall.@redirect[0].proto='tcp' 'udp'
+firewall.@redirect[1]=redirect
+firewall.@redirect[1].src='wan'
+firewall.@redirect[1].src_dport='8443'
+firewall.@redirect[1].dest_ip='192.168.1.50'
+firewall.@redirect[1].enabled='0'
+firewall.@zone[0]=zone
+firewall.@zone[0].name='wan'
+"""
+
+    def test_parse_uci_solo_redirects(self):
+        rs = c.parse_uci_redirects(self.UCI)
+        self.assertEqual([r["section"] for r in rs], ["cfg01", "@redirect[0]", "@redirect[1]"])
+        self.assertEqual(rs[0]["dest_ip"], "192.168.1.50")
+        self.assertEqual(rs[1]["proto"], "tcp udp")
+
+    def test_plan_distingue_ok_falta_y_destino_ajeno(self):
+        rs = c.parse_uci_redirects(self.UCI)
+        ok, missing, wrong = c.router_plan(rs, [80, 443, 8443, 2283], "192.168.1.50", "wan")
+        self.assertEqual(ok, [80])
+        self.assertEqual(missing, [8443, 2283])               # 8443 is disabled
+        self.assertEqual(wrong, [(443, "192.168.1.99:443")])
+
+    def test_redirect_cubre_rangos_y_descarta_udp(self):
+        r = {"src": "wan", "src_dport": "8000-8100", "proto": "udp"}
+        self.assertFalse(c.redirect_covers(r, 8050, "wan"))
+        r["proto"] = "tcp"
+        self.assertTrue(c.redirect_covers(r, 8050, "wan"))
+        self.assertFalse(c.redirect_covers(r, 8101, "wan"))
+        self.assertFalse(c.redirect_covers(dict(r, target="SNAT"), 8050, "wan"))
+
+    def test_script_idempotente_y_validado(self):
+        sh = c.router_open_script([80, 443], "192.168.1.50")
+        self.assertIn("uci set firewall.caddytui_tcp_443.dest_ip='192.168.1.50'", sh)
+        self.assertTrue(sh.endswith("uci commit firewall && /etc/init.d/firewall reload"))
+        for bad in (("192.168.1.50; reboot", [80]), ("192.168.1.50", [0]), ("192.168.1.50", ["80; reboot"])):
+            with self.assertRaises(ValueError):
+                c.router_open_script(bad[1], bad[0])
+
+    def test_config_valida_el_host_y_el_entorno(self):
+        with mock.patch.object(c, "load_config", return_value={}):
+            self.assertIsNone(c.router_config())
+            with mock.patch.dict(os.environ, {"CADDY_ROUTER": "admin@192.168.1.1:2222"}):
+                cfg = c.router_config()
+                self.assertEqual((cfg["user"], cfg["host"], cfg["port"]), ("admin", "192.168.1.1", 2222))
+            with mock.patch.dict(os.environ, {"CADDY_ROUTER": "-oProxyCommand=x"}):
+                self.assertIsNone(c.router_config())
+
+    def _status(self, text="a.example.com {\n}\n", uci=None, rc=0):
+        cfg = dict(host="192.168.1.1", user="root", port=22, key="", zone="wan", lan_zone="lan", lan_ip="192.168.1.50")
+        with mock.patch.object(c, "router_ssh", return_value=(rc, self.UCI if uci is None else uci)):
+            return c.router_status(text, cfg)
+
+    def test_checks_sin_router_configurado_no_dicen_nada(self):
+        items, fixes, need = [], set(), {}
+        with mock.patch.object(c, "router_config", return_value=None):
+            c.router_checks("a.example.com {\n}\n", lambda *a: items.append(a), fixes, need)
+        self.assertEqual((items, fixes, need), ([], set(), {}))
+
+    def test_checks_proponen_abrir_lo_que_falta(self):
+        items, fixes, need = [], set(), {}
+        st = self._status("a.example.com {\n}\nb.example.com:2283 {\n}\n")
+        c.router_checks("", lambda lv, t, *d: items.append((lv, t)), fixes, need, st)
+        self.assertIn(("warn", "The router forwards port 443 to 192.168.1.99:443, not to this machine (192.168.1.50)"), items)
+        self.assertEqual(need["router"], [2283])
+        self.assertEqual(fixes, {"router"})
+
+    def test_checks_80_443_ausentes_son_error(self):
+        items, fixes, need = [], set(), {}
+        st = self._status(uci="")
+        self.assertEqual(st["status"], "error")
+        st = self._status(uci="firewall.@zone[0]=zone\n")
+        c.router_checks("", lambda lv, t, *d: items.append(lv), fixes, need, st)
+        self.assertEqual(items, ["err"])
+        self.assertEqual(need["router"], [80, 443])
+
+    def test_ssh_caido_es_aviso_no_error(self):
+        items = []
+        st = self._status(uci="Connection refused", rc=255)
+        c.router_checks("", lambda lv, t, *d: items.append(lv), set(), {}, st)
+        self.assertEqual(items, ["warn"])
+
+    def test_setup_rechaza_una_ruta_que_no_es_clave_y_no_guarda_nada(self):
+        with tempfile.TemporaryDirectory() as d:
+            bogus = os.path.join(d, "config.json")
+            with open(bogus, "w") as f:
+                f.write("{}")
+            answers = iter(["192.168.1.1", "root", "22", bogus])
+            with mock.patch.object(c, "ask_line", side_effect=lambda *a, **k: next(answers)), \
+                 mock.patch.object(c, "router_config", return_value=None), \
+                 mock.patch.object(c, "update_config") as upd, \
+                 mock.patch.object(c, "run", return_value=(1, "invalid format")), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(c.setup_router(None), 1)
+            upd.assert_not_called()
+            self.assertIn("not a valid private SSH key", err.getvalue())
+
+    def test_abrir_ejecuta_el_script_por_ssh(self):
+        st = self._status()
+        with mock.patch.object(c, "router_ssh", return_value=(0, "")) as ssh:
+            self.assertEqual(c.router_open_ports(st, [443]), (True, ""))
+        self.assertIn("caddytui_tcp_443", ssh.call_args[0][1])
+
+
 class Translations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

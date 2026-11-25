@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: caddy-tui 1.1.0\n"
 "Report-Msgid-Bugs-To: mgoreiro@gmail.com\n"
-"POT-Creation-Date: 2026-10-26 00:30+0100\n"
+"POT-Creation-Date: 2026-11-25 19:58+0100\n"
 "PO-Revision-Date: 2026-10-17 21:30+0200\n"
 "Last-Translator: Miguel González Oreiro <mgoreiro@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -59,6 +59,9 @@ msgstr "Certificados HTTPS"
 
 msgid "Probe services"
 msgstr "Probar servicios"
+
+msgid "Router ports (OpenWrt)"
+msgstr "Puertos del router (OpenWrt)"
 
 msgid "Traffic statistics"
 msgstr "Estadísticas de tráfico"
@@ -252,6 +255,109 @@ msgstr "rutas"
 msgid "(custom block)"
 msgstr "(bloque a medida)"
 
+msgid "the router itself"
+msgstr "el propio router"
+
+msgid "no answer"
+msgstr "sin respuesta"
+
+msgid "I cannot tell the LAN address of this machine"
+msgstr "No puedo saber la dirección LAN de esta máquina"
+
+#, python-brace-format
+msgid "Cannot check the router {host}"
+msgstr "No se puede comprobar el router {host}"
+
+msgid ""
+"Fix: run 'caddy-tui --setup-router' (SSH key access to the OpenWrt router)."
+msgstr ""
+"Solución: ejecuta 'caddy-tui --setup-router' (acceso por clave SSH al router "
+"OpenWrt)."
+
+#, python-brace-format
+msgid "The router forwards ports {ports} to this machine ({ip})"
+msgstr "El router redirige los puertos {ports} a esta máquina ({ip})"
+
+msgid "Fix: let caddy-tui create the port forward(s) on the router."
+msgstr ""
+"Solución: deja que caddy-tui cree la redirección de puertos en el router."
+
+#, python-brace-format
+msgid "The router does not forward ports {ports} to this machine ({ip})"
+msgstr "El router no redirige los puertos {ports} a esta máquina ({ip})"
+
+msgid ""
+"Nothing from the Internet reaches Caddy through them, and Let's Encrypt "
+"cannot issue certificates."
+msgstr ""
+"Nada desde Internet llega a Caddy por ellos, y Let's Encrypt no puede emitir "
+"certificados."
+
+msgid "Those sites are only reachable from the local network."
+msgstr "Esos sitios solo son accesibles desde la red local."
+
+#, python-brace-format
+msgid "The router forwards port {port} to {dest}, not to this machine ({ip})"
+msgstr "El router redirige el puerto {port} a {dest}, no a esta máquina ({ip})"
+
+msgid ""
+"Fix: change that port forward on the router (caddy-tui does not touch rules "
+"it did not create)."
+msgstr ""
+"Solución: cambia esa redirección en el router (caddy-tui no toca reglas que "
+"no ha creado él)."
+
+msgid ""
+"SSH access to the OpenWrt router (to check and open the ports Caddy needs)."
+msgstr ""
+"Acceso SSH al router OpenWrt (para comprobar y abrir los puertos que "
+"necesita Caddy)."
+
+msgid "Router address"
+msgstr "Dirección del router"
+
+msgid "User"
+msgstr "Usuario"
+
+msgid "SSH port"
+msgstr "Puerto SSH"
+
+msgid "Private key"
+msgstr "Clave privada"
+
+msgid "Invalid router settings."
+msgstr "Ajustes del router no válidos."
+
+#, python-brace-format
+msgid "{key} is a folder, not a key."
+msgstr "{key} es una carpeta, no una clave."
+
+#, python-brace-format
+msgid "The key {key} does not exist. Create it?"
+msgstr "La clave {key} no existe. ¿Crearla?"
+
+#, python-brace-format
+msgid "{key} is not a valid private SSH key (use a path such as {example})."
+msgstr "{key} no es una clave privada SSH válida (usa una ruta como {example})."
+
+#, python-brace-format
+msgid "The router did not accept the key ({err})."
+msgstr "El router no ha aceptado la clave ({err})."
+
+msgid ""
+"Install the key on the router now (it will ask for the router's password)?"
+msgstr ""
+"¿Instalar la clave en el router ahora (pedirá la contraseña del router)?"
+
+msgid ""
+"Could not log in with the key. Add this public key to the router by hand "
+"(LuCI: System → Administration → SSH-Keys):"
+msgstr "No se pudo entrar con la clave. Añade esta clave pública al router a mano (LuCI: Sistema → Administración → Claves SSH):"
+
+#, python-brace-format
+msgid "Router {host} reachable. Settings saved in {path}."
+msgstr "Router {host} accesible. Ajustes guardados en {path}."
+
 #, python-brace-format
 msgid "Service '{service}' not found in {file}"
 msgstr "No se encuentra el servicio '{service}' en {file}"
@@ -420,6 +526,15 @@ msgid "Site ports published ({ports})"
 msgstr "Puertos de los sitios publicados ({ports})"
 
 #, python-brace-format
+msgid "Caddyfile ports missing in {file}: {ports}"
+msgstr "Puertos del Caddyfile que faltan en {file}: {ports}"
+
+msgid "The container publishes them now, but the next recreate will lose them."
+msgstr ""
+"El contenedor los publica ahora, pero la próxima vez que se recree se "
+"perderán."
+
+#, python-brace-format
 msgid "Ports {ports} not published"
 msgstr "Puertos {ports} sin publicar"
 
@@ -476,7 +591,9 @@ msgstr "El servicio no está escuchando: ¿está parado o es otro puerto?"
 msgid ""
 "Upstream {host}:{port} speaks plain HTTP, but the Caddyfile reaches it with "
 "HTTPS"
-msgstr "El upstream {host}:{port} habla HTTP plano, pero el Caddyfile lo contacta con HTTPS"
+msgstr ""
+"El upstream {host}:{port} habla HTTP plano, pero el Caddyfile lo contacta "
+"con HTTPS"
 
 msgid "Caddy answers 502 (\"server gave HTTP response to HTTPS client\")."
 msgstr "Caddy responde 502 (\"server gave HTTP response to HTTPS client\")."
@@ -488,7 +605,9 @@ msgstr "Solución: quita 'https://' de ese reverse_proxy."
 msgid ""
 "Upstream {host}:{port} speaks HTTPS, but the Caddyfile reaches it in plain "
 "HTTP"
-msgstr "El upstream {host}:{port} habla HTTPS, pero el Caddyfile lo contacta en HTTP plano"
+msgstr ""
+"El upstream {host}:{port} habla HTTPS, pero el Caddyfile lo contacta en HTTP "
+"plano"
 
 msgid "Caddy answers 502 (malformed HTTP response)."
 msgstr "Caddy responde 502 (respuesta HTTP malformada)."
@@ -497,7 +616,9 @@ msgstr "Caddy responde 502 (respuesta HTTP malformada)."
 msgid ""
 "Fix: use 'reverse_proxy https://{host}:{port}' (with 'transport http "
 "{{ tls_insecure_skip_verify }}' if its certificate is self-signed)."
-msgstr "Solución: usa 'reverse_proxy https://{host}:{port}' (con 'transport http {{ tls_insecure_skip_verify }}' si su certificado es autofirmado)."
+msgstr ""
+"Solución: usa 'reverse_proxy https://{host}:{port}' (con 'transport http "
+"{{ tls_insecure_skip_verify }}' si su certificado es autofirmado)."
 
 #, python-brace-format
 msgid "{host}:{port} does not respond (timeout)"
@@ -508,19 +629,24 @@ msgstr "Revisa que el servicio esté arrancado y el cortafuegos."
 
 #, python-brace-format
 msgid "'{name}' is published on port {port} in plain HTTP, outside Caddy"
-msgstr "'{name}' está publicado en el puerto {port} en HTTP plano, fuera de Caddy"
+msgstr ""
+"'{name}' está publicado en el puerto {port} en HTTP plano, fuera de Caddy"
 
 #, python-brace-format
 msgid ""
 "Whoever reaches that port talks unencrypted, and https://...:{port} fails "
 "with \"SSL received a record that exceeded the maximum length\"."
-msgstr "Quien llegue a ese puerto habla sin cifrar, y https://...:{port} falla con \"SSL ha recibido un registro que excedía la longitud máxima permitida\"."
+msgstr ""
+"Quien llegue a ese puerto habla sin cifrar, y https://...:{port} falla con "
+"\"SSL ha recibido un registro que excedía la longitud máxima permitida\"."
 
 #, python-brace-format
 msgid ""
 "Fix: stop publishing that port in the docker compose of '{name}' (Caddy "
 "reaches it through the Docker network), or use http:// on purpose."
-msgstr "Solución: deja de publicar ese puerto en el docker compose de '{name}' (Caddy llega a él por la red de Docker), o usa http:// a propósito."
+msgstr ""
+"Solución: deja de publicar ese puerto en el docker compose de '{name}' "
+"(Caddy llega a él por la red de Docker), o usa http:// a propósito."
 
 #, python-brace-format
 msgid "{count} errors in the logs of the last 10 min"
@@ -751,13 +877,18 @@ msgid ""
 "Port {port} answers plain HTTP, but this site is meant to be served over "
 "HTTPS (browsers fail with \"SSL received a record that exceeded the maximum "
 "length\")."
-msgstr "El puerto {port} responde HTTP plano, pero este sitio debería servirse por HTTPS (los navegadores fallan con \"SSL ha recibido un registro que excedía la longitud máxima permitida\")."
+msgstr ""
+"El puerto {port} responde HTTP plano, pero este sitio debería servirse por "
+"HTTPS (los navegadores fallan con \"SSL ha recibido un registro que excedía "
+"la longitud máxima permitida\")."
 
 msgid ""
 "Fix: something other than Caddy is listening on that port: check the "
 "published ports ('docker ps') and whether the address in the Caddyfile "
 "should be http://."
-msgstr "Solución: algo que no es Caddy escucha en ese puerto: revisa los puertos publicados ('docker ps') y si la dirección del Caddyfile debería ser http://."
+msgstr ""
+"Solución: algo que no es Caddy escucha en ese puerto: revisa los puertos "
+"publicados ('docker ps') y si la dirección del Caddyfile debería ser http://."
 
 #, python-brace-format
 msgid "No answer from Caddy: {error}"
@@ -1594,6 +1725,9 @@ msgstr "Ejecutando comprobaciones (puede tardar unos segundos)..."
 msgid "Diagnostics"
 msgstr "Diagnóstico"
 
+msgid "Create the missing port forward(s) on the router?"
+msgstr "¿Crear en el router las redirecciones de puertos que faltan?"
+
 msgid "Start the Caddy container?"
 msgstr "¿Arrancar el contenedor de Caddy?"
 
@@ -1613,6 +1747,15 @@ msgstr ""
 msgid "Update {file} with the required changes?"
 msgstr "¿Actualizar {file} con los cambios necesarios?"
 
+msgid "Recreate the Caddy container to apply the changes?"
+msgstr "¿Recrear el contenedor de Caddy para aplicar los cambios?"
+
+msgid "Recreate"
+msgstr "Recrear"
+
+msgid "Run the diagnostics again?"
+msgstr "¿Volver a ejecutar el diagnóstico?"
+
 msgid "The resulting compose file is not valid:"
 msgstr "El compose resultante no es válido:"
 
@@ -1630,29 +1773,20 @@ msgstr "No se pudo actualizar el compose automáticamente"
 msgid "Add this by hand in {file}:"
 msgstr "Añade a mano esto en {file}:"
 
-msgid "Caddyfile ports missing in {file}: {ports}"
-msgstr "Puertos del Caddyfile que faltan en {file}: {ports}"
-
-msgid "The container publishes them now, but the next recreate will lose them."
-msgstr "El contenedor los publica ahora, pero la próxima vez que se recree se perderán."
-
 msgid "Ports not published"
 msgstr "Puertos sin publicar"
 
-msgid "The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so those sites would not be reachable from outside."
-msgstr "El Caddyfile usa ahora el/los puerto(s) {ports}, pero {file} no los publica, así que esos sitios no serían accesibles desde fuera."
+#, python-brace-format
+msgid ""
+"The Caddyfile now uses port(s) {ports}, but {file} does not publish them, so "
+"those sites would not be reachable from outside."
+msgstr ""
+"El Caddyfile usa ahora el/los puerto(s) {ports}, pero {file} no los publica, "
+"así que esos sitios no serían accesibles desde fuera."
 
+#, python-brace-format
 msgid "Publish port(s) {ports} in {file}?"
 msgstr "¿Publicar el/los puerto(s) {ports} en {file}?"
-
-msgid "Recreate the Caddy container to apply the changes?"
-msgstr "¿Recrear el contenedor de Caddy para aplicar los cambios?"
-
-msgid "Recreate"
-msgstr "Recrear"
-
-msgid "Run the diagnostics again?"
-msgstr "¿Volver a ejecutar el diagnóstico?"
 
 msgid "No .env exists. Create it from .env.example?"
 msgstr "No existe .env. ¿Crearlo desde .env.example?"
@@ -1675,6 +1809,33 @@ msgstr "Probando los sitios (puede tardar unos segundos)..."
 
 msgid "There are no named sites to probe in the Caddyfile."
 msgstr "No hay sitios con nombre que probar en el Caddyfile."
+
+msgid "No router is configured."
+msgstr "No hay ningún router configurado."
+
+msgid "Creating the port forwards on the router..."
+msgstr "Creando las redirecciones de puertos en el router..."
+
+#, python-brace-format
+msgid ""
+"Ports {ports} are now forwarded to {ip} (rules '{prefix}<port>' in the "
+"router's firewall)."
+msgstr ""
+"Los puertos {ports} ya se redirigen a {ip} (reglas '{prefix}<port>' en el "
+"cortafuegos del router)."
+
+msgid "The router refused the change:"
+msgstr "El router ha rechazado el cambio:"
+
+msgid ""
+"No router is configured. Run 'caddy-tui --setup-router' in a terminal (it "
+"sets up SSH key access to the OpenWrt router)."
+msgstr ""
+"No hay ningún router configurado. Ejecuta 'caddy-tui --setup-router' en un "
+"terminal (configura el acceso por clave SSH al router OpenWrt)."
+
+msgid "Asking the router (this can take a few seconds)..."
+msgstr "Consultando al router (puede tardar unos segundos)..."
 
 msgid ""
 "Not a valid IP or range (loopback and ranges wider than /8 are refused)."
@@ -1993,6 +2154,13 @@ msgstr ""
 "configuración guiada del bot de Telegram y de la comprobación periódica "
 "(necesita root)"
 
+msgid ""
+"set up SSH access to the OpenWrt router, so caddy-tui checks (and, if you "
+"accept, opens) the ports Caddy needs"
+msgstr ""
+"configura el acceso SSH al router OpenWrt para que caddy-tui compruebe (y, "
+"si aceptas, abra) los puertos que necesita Caddy"
+
 msgid "remove the periodic check set up by --setup-alerts"
 msgstr "quita la comprobación periódica creada por --setup-alerts"
 
@@ -2083,3 +2251,11 @@ msgstr "{path} ya existe."
 
 msgid "Set up a new Caddy now with the guided installer?"
 msgstr "¿Instalar ahora un Caddy nuevo con el asistente?"
+
+#, python-brace-format
+#~ msgid ""
+#~ "Could not log in with the key. Add the public key {key}.pub to the router "
+#~ "by hand (LuCI: System → Administration → SSH-Keys)."
+#~ msgstr ""
+#~ "No se pudo entrar con la clave. Añade la clave pública {key}.pub al "
+#~ "router a mano (LuCI: Sistema → Administración → Claves SSH)."
